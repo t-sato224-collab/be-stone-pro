@@ -4,40 +4,32 @@
 import { useEffect } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 
-interface QrScannerProps {
-  onScanSuccess: (decodedText: string) => void;
-  onScanError?: (error: string) => void;
-}
-
-export default function QrScanner({ onScanSuccess, onScanError }: QrScannerProps) {
+export default function QrScanner({ onScanSuccess }: { onScanSuccess: (text: string) => void }) {
   useEffect(() => {
-    const scanner = new Html5QrcodeScanner(
-      "reader",
-      { 
-        fps: 10, 
-        qrbox: { width: 250, height: 250 },
-        aspectRatio: 1.0
-      },
-      /* verbose= */ false
-    );
+    // 確実にDOMが生成されてから初期化する
+    const config = { 
+      fps: 10, 
+      qrbox: { width: 250, height: 250 },
+      aspectRatio: 1.0,
+      showTorchButtonIfSupported: true
+    };
+    
+    const scanner = new Html5QrcodeScanner("reader", config, false);
 
     scanner.render(
-      (decodedText) => {
-        scanner.clear(); // 読み取り成功時にカメラを止める
-        onScanSuccess(decodedText);
+      (text) => {
+        scanner.clear().then(() => onScanSuccess(text));
       },
-      (error) => {
-        if (onScanError) onScanError(error);
-      }
+      () => { /* エラーは無視 */ }
     );
 
     return () => {
-      scanner.clear().catch(error => console.error("Scanner cleanup failed", error));
+      scanner.clear().catch(e => console.error(e));
     };
-  }, [onScanSuccess, onScanError]);
+  }, [onScanSuccess]);
 
   return (
-    <div className="w-full max-w-sm mx-auto overflow-hidden rounded-2xl shadow-lg bg-black">
+    <div className="w-full max-w-sm mx-auto overflow-hidden rounded-[2rem] border-4 border-slate-100">
       <div id="reader"></div>
     </div>
   );
