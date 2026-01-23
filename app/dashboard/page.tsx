@@ -254,7 +254,7 @@ export default function DashboardPage() {
           {isMobile && <button onClick={() => setSidebarOpen(false)}><X size={32} color="#75C9D7" /></button>}
         </div>
         <nav className="flex-1 space-y-2">
-          {["📋 本日の業務", "⚠️ 未完了タスク", "🕒 自分の履歴", "📊 監視   (Admin)", "📅 出勤簿(Admin)"].filter(label => !label.includes("Admin") || staff.role === 'admin').map((label) => (
+          {["📋 本日の業務", "⚠️ 未完了タスク", "🕒 自分の履歴", "📊 監視(Admin)", "📅 出勤簿(Admin)"].filter(label => !label.includes("Admin") || staff.role === 'admin').map((label) => (
             <button key={label} onClick={() => { setMenuChoice(label); setSidebarOpen(false); localStorage.setItem('active_page', label); if(label.includes("履歴")) fetchPersonalHistory(staff.id); }}
               className={`menu-item ${menuChoice === label ? 'menu-item-active' : ''}`}>
               <span>{label}</span>
@@ -270,7 +270,7 @@ export default function DashboardPage() {
       <main className="flex-1 p-6 md:p-12 overflow-y-auto w-full pt-24 md:pt-12">
         <div className="max-w-4xl mx-auto w-full">
             <div className="flex justify-between items-center mb-10">
-                <h1 className="text-4xl font-black italic" style={{color: '#75C9D7'}}>BE STONE</h1>
+                <h1 className="text-4xl font-black italic" style={{color: '#75C9D7'}}>BE STONE{staff.name} 様</h1>
                 <div className="bg-white px-5 py-2 rounded-full shadow-sm border flex items-center gap-3 font-black text-slate-500 text-sm">
                     <Clock size={16} color="#75C9D7"/>
                     {currentTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
