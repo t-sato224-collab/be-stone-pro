@@ -270,7 +270,7 @@ export default function DashboardPage() {
       <main className="flex-1 p-6 md:p-12 overflow-y-auto w-full pt-24 md:pt-12">
         <div className="max-w-4xl mx-auto w-full">
             <div className="flex justify-between items-center mb-10">
-                <h3 className="text-4xl font-black italic" style={{color: '#75C9D7'}}>BE STONE{staff.name} 様</h3>
+                <h3 className="text-xl font-black italic" style={{color: '#75C9D7'}}>BE STONE{staff.name} 様</h3>
                 <div className="bg-white px-5 py-2 rounded-full shadow-sm border flex items-center gap-3 font-black text-slate-500 text-sm">
                     <Clock size={16} color="#75C9D7"/>
                     {currentTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
