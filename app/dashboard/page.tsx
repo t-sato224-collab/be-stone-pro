@@ -254,7 +254,7 @@ export default function DashboardPage() {
           {isMobile && <button onClick={() => setSidebarOpen(false)}><X size={32} color="#75C9D7" /></button>}
         </div>
         <nav className="flex-1 space-y-2">
-          {["📋 本日の業務", "⚠️ 未完了タスク", "🕒 自分の履歴", "📊 監視(Admin)", "📅 出勤簿(Admin)"].filter(label => !label.includes("Admin") || staff.role === 'admin').map((label) => (
+          {["📋 本日の業務", "⚠️ 未完了タスク", "🕒 自分の履歴", "📊 監視(Admin)", "📅出勤簿(Admin)"].filter(label => !label.includes("Admin") || staff.role === 'admin').map((label) => (
             <button key={label} onClick={() => { setMenuChoice(label); setSidebarOpen(false); localStorage.setItem('active_page', label); if(label.includes("履歴")) fetchPersonalHistory(staff.id); }}
               className={`menu-item ${menuChoice === label ? 'menu-item-active' : ''}`}>
               <span>{label}</span>
