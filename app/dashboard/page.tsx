@@ -169,7 +169,7 @@ export default function DashboardPage() {
       {/* ハンバーガーアイコン */}
       {isMobile && !activeTask && (
         <button onClick={() => setSidebarOpen(true)} className="fixed top-6 left-6 z-50 p-3 bg-white shadow-xl rounded-2xl border border-slate-100 active:scale-90">
-          <Menu size={28} color="#75C9D7" />
+          <Menu size={28} color="#ffffff" />
         </button>
       )}
 
