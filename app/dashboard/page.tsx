@@ -178,7 +178,7 @@ export default function DashboardPage() {
       <aside className={`fixed md:relative inset-y-0 left-0 z-[150] w-[75vw] md:w-80 bg-white border-r border-slate-100 p-8 shadow-2xl md:shadow-none transition-transform duration-300 transform ${sidebarOpen || !isMobile ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex justify-between items-center mb-10">
           <h1 className="text-3xl font-black italic" style={{color: '#75C9D7'}}>BE STONE</h1>
-          {isMobile && <button onClick={() => setSidebarOpen(false)}><X size={32} color="#75C9D7" /></button>}
+          {isMobile && <button onClick={() => setSidebarOpen(false)}><X size={32} color="#ffffff" /></button>}
         </div>
         <nav className="flex-1 space-y-2">
           {["📋 本日の業務", "⚠️ 未完了タスク", "🕒 自分の履歴", "📊 監視(Admin)", "📅 出勤簿(Admin)"].filter(label => !label.includes("Admin") || staff.role === 'admin').map((label) => (
