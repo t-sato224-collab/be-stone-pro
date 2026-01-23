@@ -45,7 +45,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-[#FFFFFF] flex flex-col items-center justify-center p-4 text-black">
       <div className="mb-10 text-center">
         {/* テキストから画像ロゴへ差し替え */}
-        <img src="/logo.png" alt="BE STONE" className="w-48 mx-auto mb-4" />
+        <img src="/logo.png" alt="BE STONE" className="w-72 mx-auto mb-4" />
         <p className="text-gray-400 text-xs tracking-[0.4em] font-bold uppercase">Operation Management</p>
       </div>
 

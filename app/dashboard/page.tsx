@@ -225,7 +225,7 @@ export default function DashboardPage() {
       <aside className={`fixed md:relative inset-y-0 left-0 z-[150] w-[75vw] md:w-80 bg-white border-r border-slate-100 p-8 shadow-2xl md:shadow-none transition-transform duration-300 transform ${sidebarOpen || !isMobile ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex justify-between items-center mb-10">
           {/* サイドバーロゴ */}
-          <img src="/logo.png" alt="BE STONE" className="w-32" />
+          <img src="/logo.png" alt="BE STONE" className="w-72" />
           {isMobile && <button onClick={() => setSidebarOpen(false)}><X size={32} color="#75C9D7" /></button>}
         </div>
         <nav className="flex-1 space-y-2">
@@ -253,7 +253,7 @@ export default function DashboardPage() {
         <div className="max-w-4xl mx-auto w-full">
             <div className="flex justify-between items-center mb-10">
                 {/* メインエリアロゴ */}
-                <img src="/logo.png" alt="BE STONE" className="w-40" />
+                <img src="/logo.png" alt="BE STONE" className="w-72" />
                 <div className="bg-white px-5 py-2 rounded-full shadow-sm border flex items-center gap-3 font-black text-slate-500 text-sm">
                     <Clock size={16} color="#75C9D7"/>
                     {currentTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
