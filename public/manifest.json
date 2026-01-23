@@ -1,0 +1,17 @@
+{
+  "name": "BE STONE 業務アプリ",
+  "short_name": "BE STONE",
+  "description": "BE STONE 業務管理システム",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#75C9D7",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
