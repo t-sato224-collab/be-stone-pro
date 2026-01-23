@@ -266,7 +266,7 @@ export default function DashboardPage() {
                         ) : (
                             <div className="flex flex-col gap-4">
                                 <div className="flex gap-4">
-                                    <button onClick={handleBreak} className={`flex-1 py-6 ${attendanceStatus === 'break' ? 'bg-orange-400' : 'bg-[#1a202c]'} text-white font-black rounded-3xl text-xl flex items-center justify-center gap-3`}>
+                                    <button onClick={handleBreak} className={`flex-1 py-6 ${attendanceStatus === 'break' ? 'bg-orange-400' : 'bg-[#75C9D7]'} text-white font-black rounded-3xl text-xl flex items-center justify-center gap-3`}>
                                         {attendanceStatus === 'break' ? <PlayCircle/> : <Coffee/>}
                                         <span style={{color: 'white'}}>{attendanceStatus === 'break' ? '業務復帰' : '休憩入り'}</span>
                                     </button>
