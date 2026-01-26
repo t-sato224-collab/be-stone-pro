@@ -1,83 +1,166 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Lock, User, ArrowRight, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { v4 as uuidv4 } from 'uuid';
+import { Lock, User, ArrowRight, Save, AlertCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [staffId, setStaffId] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [isFirstLogin, setIsFirstLogin] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [staffRecord, setStaffRecord] = useState<any>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError("");
 
     try {
-      const { data: staff, error: fetchError } = await supabase
+      // 1. IDとパスワードで検索
+      const { data, error } = await supabase
         .from('staff')
         .select('*')
         .eq('staff_id', staffId)
-        .eq('password', password)
+        .eq('password', password) // ※本番ではハッシュ化推奨ですが、まずは平文で実装
         .single();
 
-      if (fetchError || !staff) throw new Error("IDまたはパスワードが正しくありません");
+      if (error || !data) {
+        alert("IDまたはパスワードが違います。");
+        setLoading(false);
+        return;
+      }
 
-      const newSessionKey = uuidv4();
-      await supabase.from('staff').update({ session_key: newSessionKey }).eq('id', staff.id);
-
-      localStorage.setItem('staff_id', staffId);
-      localStorage.setItem('session_key', newSessionKey);
-      localStorage.setItem('active_page', '📋 本日の業務');
-
-      window.location.href = '/dashboard';
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
+      // 2. 初回ログイン判定
+      if (data.is_initial_password) {
+        setIsFirstLogin(true);
+        setStaffRecord(data);
+        setLoading(false);
+      } else {
+        // 3. 通常ログイン成功
+        loginSuccess(data);
+      }
+    } catch (err) {
+      alert("ログインエラーが発生しました。");
       setLoading(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-[#FFFFFF] flex flex-col items-center justify-center p-4 text-black">
-      <div className="mb-10 text-center">
-        {/* テキストから画像ロゴへ差し替え */}
-        <img src="/logo.png" alt="BE STONE" className="w-72 mx-auto mb-4" />
-        <p className="text-gray-400 text-xs tracking-[0.4em] font-bold uppercase">Operation Management</p>
-      </div>
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword.length < 4) {
+      alert("パスワードは4文字以上にしてください。");
+      return;
+    }
+    setLoading(true);
 
-      <div className="w-full max-w-[380px] bg-white rounded-[2.5rem] shadow-xl p-10 border border-gray-100">
-        <h2 className="text-2xl font-bold text-center text-gray-800 mb-8">Login</h2>
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div className="relative">
-            <User className="absolute left-4 top-3.5 text-gray-400" size={20} />
-            <input 
-              type="text" placeholder="STAFF ID" required value={staffId}
-              onChange={(e) => setStaffId(e.target.value)}
-              className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-[#75C9D7] outline-none"
-            />
-          </div>
-          <div className="relative">
-            <Lock className="absolute left-4 top-3.5 text-gray-400" size={20} />
-            <input 
-              type="password" placeholder="PASSWORD" required value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-[#75C9D7] outline-none"
-            />
-          </div>
-          {error && <p className="text-red-500 text-sm text-center font-bold">{error}</p>}
-          <button 
-            type="submit" disabled={loading}
-            style={{backgroundColor: '#75C9D7', color: 'white', border: 'none'}}
-            className="w-full py-4 font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
-          >
-            {loading ? <Loader2 className="animate-spin" size={20} /> : "SIGN IN"}
-            {!loading && <ArrowRight size={20} />}
-          </button>
-        </form>
+    // パスワード更新とフラグ解除
+    const { error } = await supabase
+      .from('staff')
+      .update({ password: newPassword, is_initial_password: false })
+      .eq('id', staffRecord.id);
+
+    if (error) {
+      alert("更新に失敗しました。");
+      setLoading(false);
+    } else {
+      alert("パスワードを変更しました。新しいパスワードでログインします。");
+      // 更新された情報でログイン処理へ
+      const updatedStaff = { ...staffRecord, password: newPassword, is_initial_password: false };
+      loginSuccess(updatedStaff);
+    }
+  };
+
+  const loginSuccess = (staffData: any) => {
+    // セッション情報の保存（簡易版）
+    localStorage.setItem('staff_id', staffData.staff_id);
+    localStorage.setItem('session_key', staffData.session_key || 'demo-key'); // session_keyがない場合はデモ用
+    router.push('/dashboard');
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 text-black px-4">
+      <div className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
+        <div className="text-center mb-10">
+          <h1 className="text-4xl font-black italic mb-2" style={{ color: '#75C9D7' }}>BE STONE</h1>
+          <p className="text-slate-400 font-bold text-sm">業務管理システム Pro</p>
+        </div>
+
+        {!isFirstLogin ? (
+          /* 通常ログインフォーム */
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <label className="block text-sm font-black text-slate-600 mb-2">スタッフID</label>
+              <div className="relative">
+                <User className="absolute left-4 top-3.5 text-slate-300" size={20} />
+                <input 
+                  type="text" 
+                  value={staffId}
+                  onChange={(e) => setStaffId(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:outline-none focus:border-[#75C9D7]"
+                  placeholder="IDを入力"
+                  required
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-black text-slate-600 mb-2">パスワード</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-3.5 text-slate-300" size={20} />
+                <input 
+                  type="password" 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:outline-none focus:border-[#75C9D7]"
+                  placeholder="パスワードを入力"
+                  required
+                />
+              </div>
+            </div>
+            <button 
+              type="submit" 
+              disabled={loading}
+              className="w-full py-4 bg-[#75C9D7] text-white font-black rounded-2xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              {loading ? "確認中..." : <>ログイン <ArrowRight size={20} /></>}
+            </button>
+          </form>
+        ) : (
+          /* 初回パスワード変更フォーム */
+          <form onSubmit={handlePasswordChange} className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 flex items-start gap-3">
+              <AlertCircle className="text-orange-500 shrink-0" size={24} />
+              <div>
+                <p className="font-black text-orange-600 text-sm">初回ログインです</p>
+                <p className="text-xs text-orange-400 font-bold mt-1">セキュリティのため、新しいパスワードを設定してください。</p>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-black text-slate-600 mb-2">新しいパスワード</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-3.5 text-slate-300" size={20} />
+                <input 
+                  type="password" 
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:outline-none focus:border-[#75C9D7]"
+                  placeholder="4文字以上で入力"
+                  minLength={4}
+                  required
+                />
+              </div>
+            </div>
+            <button 
+              type="submit" 
+              disabled={loading}
+              className="w-full py-4 bg-[#1a202c] text-white font-black rounded-2xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              {loading ? "更新中..." : <>変更して開始 <Save size={20} /></>}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
