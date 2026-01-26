@@ -102,9 +102,11 @@ export default function DashboardPage() {
     return tasks.filter(t => Math.abs(cur - ((t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0))) <= 30);
   }, [tasks, currentTime]);
 
+  // 【修正】未完了タスクを時系列（古い順）でソート
   const overdueTasks = useMemo(() => {
     const cur = currentTime.getHours() * 60 + currentTime.getMinutes();
-    return tasks.filter(t => ((t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0)) < cur - 30 && t.status !== 'completed');
+    return tasks.filter(t => ((t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0)) < cur - 30 && t.status !== 'completed')
+      .sort((a, b) => ((a.task_master?.target_hour || 0) * 60 + (a.task_master?.target_minute || 0)) - ((b.task_master?.target_hour || 0) * 60 + (b.task_master?.target_minute || 0)));
   }, [tasks, currentTime]);
 
   const handleClockAction = async (type: 'in' | 'out' | 'break') => {
@@ -149,7 +151,7 @@ export default function DashboardPage() {
     const headers = "名前,日付,出勤,退勤,休憩,実働\n";
     const rows = adminReport.map(r => `${r.staff_name},${r.work_date},${formatJST(r.clock_in_at)},${formatJST(r.clock_out_at)},${r.break_time},${r.work_time}`).join("\n");
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\uFEFF" + headers + rows], { type: 'text/csv;charset=utf-8;' }));
-    link.download = `BE_STONE_Report.csv`; link.click();
+    link.download = `Report.csv`; link.click();
   };
 
   const handleSaveRecord = async () => {
@@ -163,7 +165,7 @@ export default function DashboardPage() {
 
   if (!staff) return null;
   const cb = breaksList.find(b => !b.break_end_at);
-  const tInfo = attendanceStatus === 'break' ? { label: "休憩中", val: `${Math.floor((currentTime.getTime() - new Date(cb?.break_start_at).getTime())/60000)}分 (計:${getBreakMins(breaksList, cb?.break_start_at)}分)`, col: "#ED8936" } : { label: "実働中", val: formatHHMM(getWorkMins(currCard?.clock_in_at, null, breaksList)), col: "#75C9D7" };
+  const tInfo = attendanceStatus === 'break' ? { label: "休憩中", val: `${Math.floor((currentTime.getTime() - new Date(cb?.break_start_at).getTime())/60000)}分 (累計:${getBreakMins(breaksList, cb?.break_start_at)}分)`, col: "#ED8936" } : { label: "実働中", val: formatHHMM(getWorkMins(currCard?.clock_in_at, null, breaksList)), col: "#75C9D7" };
 
   return (
     <div className="min-h-screen bg-white flex flex-col md:flex-row text-black overflow-x-hidden font-sans">
@@ -182,7 +184,7 @@ export default function DashboardPage() {
       <div className={`fixed inset-0 bg-black/40 z-[140] transition-opacity ${sidebarOpen ? 'visible opacity-100' : 'invisible opacity-0'}`} onClick={() => setSidebarOpen(false)} />
       <aside className={`fixed md:relative inset-y-0 left-0 z-[150] w-[75vw] md:w-72 bg-white border-r p-6 flex flex-col transition-transform ${sidebarOpen || !isMobile ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex justify-between items-center mb-8">
-            <h1 className="text-2xl font-black italic text-[#75C9D7]">MENU</h1>
+            <h1 className="text-2xl font-black italic text-[#75C9D7]">BE STONE Pro</h1>
             {isMobile && <button onClick={() => setSidebarOpen(false)}><X size={28} color="#75C9D7" /></button>}
         </div>
         <nav className="flex-1 space-y-1">
@@ -191,7 +193,7 @@ export default function DashboardPage() {
           ))}
         </nav>
         <div className="mt-auto pt-4 border-t text-center">
-            <p className="font-black text-sm mb-3">{staff.name} 様</p>
+            <p className="font-black text-sm mb-3 text-black">{staff.name} 様</p>
             <button onClick={() => {localStorage.clear(); window.location.href='/';}} className="w-full py-3 bg-slate-50 text-[#E53E3E] font-black rounded-xl border border-slate-200">ログアウト</button>
         </div>
       </aside>
@@ -200,7 +202,7 @@ export default function DashboardPage() {
         <div className="max-w-4xl mx-auto">
           <div className="flex justify-between items-center mb-8">
             <img src="/logo.png" className="w-32" alt="logo" />
-            <div className="bg-white px-4 py-1.5 rounded-full border flex items-center gap-2 font-black text-slate-500 text-xs"><Clock size={14} color="#75C9D7"/>{currentTime.toLocaleTimeString('ja-JP')}</div>
+            <div className="bg-white px-4 py-1.5 rounded-full border flex items-center gap-2 font-black text-slate-500 text-xs text-black"><Clock size={14} color="#75C9D7"/>{currentTime.toLocaleTimeString('ja-JP')}</div>
           </div>
 
           {menuChoice === "📋 本日の業務" && (
@@ -209,8 +211,8 @@ export default function DashboardPage() {
                 {attendanceStatus === 'offline' ? <button onClick={() => handleClockAction('in')} className="w-full py-5 bg-[#75C9D7] text-white font-black rounded-2xl text-xl border-none">🚀 業務開始 (出勤)</button> : <>
                     <div className="flex gap-3 mb-4"><button onClick={() => handleClockAction('break')} className={`flex-1 py-4 border-none ${attendanceStatus === 'break' ? 'bg-orange-400' : 'bg-[#1a202c]'} text-white font-black rounded-2xl`}>{attendanceStatus === 'break' ? '🏃 業務復帰' : '☕ 休憩入り'}</button>
                     <button onClick={() => handleClockAction('out')} className="flex-1 py-4 bg-white border border-slate-200 text-slate-400 font-black rounded-2xl">退勤</button></div>
-                    <p className="text-sm font-bold text-slate-400">出勤：{formatJST(currCard?.clock_in_at)}</p>
-                    <p className="text-lg font-black mt-1" style={{color: tInfo.col}}>{tInfo.label}：{tInfo.val}</p>
+                    <p className="text-sm font-bold text-slate-400 text-center">出勤：{formatJST(currCard?.clock_in_at)}</p>
+                    <p className="text-lg font-black mt-1 text-center" style={{color: tInfo.col}}>{tInfo.label}：{tInfo.val}</p>
                   </>}
               </div>
               {attendanceStatus !== 'offline' && displayTasks.map(t => (
@@ -224,8 +226,8 @@ export default function DashboardPage() {
 
           {menuChoice === "⚠️ 未完了タスク" && overdueTasks.map(t => (
             <div key={t.id} className="app-card border-l-8 border-red-400 flex justify-between items-center text-black">
-              <div className="flex-1 pr-4"><p className="text-red-500 font-black text-xs">【遅延】{t.task_master?.target_hour}:00</p><h5 className="text-lg font-bold">{t.task_master?.task_name}</h5><p className="text-xs text-slate-400">{t.task_master?.locations?.name}</p></div>
-              <button onClick={() => handleTaskAction(t)} className={`px-8 py-4 font-black rounded-xl text-white border-none ${t.status === 'started' ? 'bg-orange-500' : 'bg-[#E53E3E]'}`}>{t.status === 'started' ? '再開' : 'リカバリー'}</button>
+              <div className="flex-1 pr-4 text-black"><p className="text-red-500 font-black text-xs">【遅延】{t.task_master?.target_hour}:00</p><h5 className="text-lg font-bold">{t.task_master?.task_name}</h5><p className="text-xs text-slate-400">{t.task_master?.locations?.name}</p></div>
+              <button onClick={() => handleTaskAction(t)} className={`px-8 py-4 font-black rounded-xl text-white border-none ${t.status === 'started' ? 'bg-orange-500' : 'bg-[#E53E3E]'}`}>{t.status === 'started' ? '再開' : 'リカバリ'}</button>
             </div>
           ))}
 
@@ -253,11 +255,11 @@ export default function DashboardPage() {
 
           {menuChoice === "📅 出勤簿(Admin)" && (
             <div className="space-y-6">
-              <div className="app-card text-black">
+              <div className="app-card">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
-                  <select className="p-3 bg-slate-50 rounded-xl font-bold text-sm border-none" value={filterStaffId} onChange={e => setFilterStaffId(e.target.value)}><option value="all">全員</option>{adminStaffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
-                  <input type="date" className="p-3 bg-slate-50 rounded-xl border-none font-bold" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} />
-                  <input type="date" className="p-3 bg-slate-50 rounded-xl border-none font-bold" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} />
+                  <select className="p-3 bg-slate-50 rounded-xl font-bold text-sm border-none text-black" value={filterStaffId} onChange={e => setFilterStaffId(e.target.value)}><option value="all">全員</option>{adminStaffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
+                  <input type="date" className="p-3 bg-slate-50 rounded-xl border-none font-bold text-black" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} />
+                  <input type="date" className="p-3 bg-slate-50 rounded-xl border-none font-bold text-black" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} />
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <button onClick={generateAdminReport} className="admin-grid-btn bg-[#1a202c] text-white"><Search size={16}/>抽出</button>
@@ -269,8 +271,8 @@ export default function DashboardPage() {
                 <div key={r.id} className="app-card flex justify-between items-center border-l-8 border-slate-100 text-black py-4">
                   <div className="flex-1"><p className="font-black text-sm">{r.staff_name} 様</p><p className="text-[10px] text-slate-500">{r.work_date} ({formatJST(r.clock_in_at)}〜{formatJST(r.clock_out_at)})</p></div>
                   <div className="flex gap-1">
-                    <button onClick={() => {setEditingCard(r); setEditForm({staff_id: r.staff_id, work_date: r.work_date, clock_in_time: isoToTime(r.clock_in_at), clock_out_time: isoToTime(r.clock_out_at)}); setIsEditModalOpen(true);}} className="p-2.5 bg-slate-50 text-slate-500 rounded-lg border-none cursor-pointer"><Edit size={14}/></button>
-                    <button onClick={async () => { if(confirm("削除?")){ await supabase.from('breaks').delete().eq('timecard_id', r.id); await supabase.from('timecards').delete().eq('id', r.id); generateAdminReport(); }}} className="p-2.5 bg-red-50 text-red-400 rounded-lg border-none cursor-pointer"><Trash2 size={14}/></button>
+                    <button onClick={() => {setEditingCard(r); setEditForm({staff_id: r.staff_id, work_date: r.work_date, clock_in_time: isoToTime(r.clock_in_at), clock_out_time: isoToTime(r.clock_out_at)}); setIsEditModalOpen(true);}} className="p-2.5 bg-slate-50 text-slate-500 rounded-lg border-none"><Edit size={14}/></button>
+                    <button onClick={async () => { if(confirm("消去?")){ await supabase.from('breaks').delete().eq('timecard_id', r.id); await supabase.from('timecards').delete().eq('id', r.id); generateAdminReport(); }}} className="p-2.5 bg-red-50 text-red-400 rounded-lg border-none"><Trash2 size={14}/></button>
                   </div>
                 </div>
               ))}
@@ -282,13 +284,13 @@ export default function DashboardPage() {
       {activeTask && (
         <div className="fixed inset-0 bg-white z-[300] flex flex-col p-6 pt-10 overflow-y-auto text-center text-black">
           <div className="flex justify-between items-center mb-8 px-2">
-            <button onClick={() => setActiveTask(null)} className="p-3 bg-slate-50 rounded-xl border-none"><h3>x<PauseCircle size={20}/>一時中止</h3></button>
+            <button onClick={() => setActiveTask(null)} className="p-3 bg-slate-50 rounded-xl border-none"><PauseCircle size={20}/></button>
             <h2 className="text-lg font-black italic">MISSION</h2><div className="w-10"></div>
           </div>
           {!isQrVerified ? <QrScanner onScanSuccess={onQrScan} /> : (
-            <div className="space-y-8 animate-in zoom-in duration-300">
+            <div className="space-y-8 animate-in zoom-in">
               <CheckCircle2 size={64} className="text-green-500 mx-auto" />
-              <p className="font-black text-xl text-black">{activeTask.task_master?.task_name}</p>
+              <p className="font-black text-xl">{activeTask.task_master?.task_name}</p>
               <label className="block w-full px-4 cursor-pointer">
                 <div className="w-full py-8 bg-[#75C9D7] text-white font-black rounded-3xl shadow-xl flex items-center justify-center gap-3 text-xl active:scale-95 transition-all"><Camera size={32}/>証拠写真を撮影</div>
                 <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleTaskComplete} />
@@ -301,17 +303,15 @@ export default function DashboardPage() {
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl text-black">
-            <h3 className="text-lg font-black mb-6 text-center">{editingCard ? '勤怠修正' : '勤怠登録'}</h3>
+            <h3 className="text-lg font-black mb-6 text-center">{editingCard ? '修正' : '登録'}</h3>
             <div className="space-y-4">
               <div><label className="text-[10px] font-black text-slate-400 ml-1">スタッフ</label>
                 <select className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm" value={editForm.staff_id} onChange={e => setEditForm({...editForm, staff_id: e.target.value})} disabled={!!editingCard}>{adminStaffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
               </div>
-              <div><label className="text-[10px] font-black text-slate-400 ml-1">日付</label>
-                <input type="date" className="w-full p-3 bg-slate-50 rounded-xl border-none text-sm font-bold" value={editForm.work_date} onChange={e => setEditForm({...editForm, work_date: e.target.value})} />
-              </div>
-              <div className="flex gap-3">
-                <div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">出勤</label><input type="time" className="w-full p-3 bg-slate-50 rounded-xl border-none text-sm font-bold" value={editForm.clock_in_time} onChange={e => setEditForm({...editForm, clock_in_time: e.target.value})} /></div>
-                <div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">退勤</label><input type="time" className="w-full p-3 bg-slate-50 rounded-xl border-none text-sm font-bold" value={editForm.clock_out_time} onChange={e => setEditForm({...editForm, clock_out_time: e.target.value})} /></div>
+              <div><label className="text-[10px] font-black text-slate-400 ml-1">日付</label><input type="date" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm" value={editForm.work_date} onChange={e => setEditForm({...editForm, work_date: e.target.value})} /></div>
+              <div className="flex gap-3 text-black">
+                <div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">出勤</label><input type="time" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm" value={editForm.clock_in_time} onChange={e => setEditForm({...editForm, clock_in_time: e.target.value})} /></div>
+                <div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">退勤</label><input type="time" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm" value={editForm.clock_out_time} onChange={e => setEditForm({...editForm, clock_out_time: e.target.value})} /></div>
               </div>
             </div>
             <div className="flex gap-3 mt-8">
