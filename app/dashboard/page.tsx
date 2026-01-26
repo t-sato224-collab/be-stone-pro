@@ -282,7 +282,7 @@ export default function DashboardPage() {
       {activeTask && (
         <div className="fixed inset-0 bg-white z-[300] flex flex-col p-6 pt-10 overflow-y-auto text-center text-black">
           <div className="flex justify-between items-center mb-8 px-2">
-            <button onClick={() => setActiveTask(null)} className="p-3 bg-slate-50 rounded-xl border-none"><PauseCircle size={20}/>イレギュラー対応</button>
+            <button onClick={() => setActiveTask(null)} className="p-3 bg-slate-50 rounded-xl border-none"><PauseCircle size={20}/><h3>イレギュラー対応</h3></button>
             <h2 className="text-lg font-black italic">MISSION</h2><div className="w-10"></div>
           </div>
           {!isQrVerified ? <QrScanner onScanSuccess={onQrScan} /> : (
