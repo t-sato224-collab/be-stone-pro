@@ -182,7 +182,7 @@ export default function DashboardPage() {
       <div className={`fixed inset-0 bg-black/40 z-[140] transition-opacity ${sidebarOpen ? 'visible opacity-100' : 'invisible opacity-0'}`} onClick={() => setSidebarOpen(false)} />
       <aside className={`fixed md:relative inset-y-0 left-0 z-[150] w-[75vw] md:w-72 bg-white border-r p-6 flex flex-col transition-transform ${sidebarOpen || !isMobile ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex justify-between items-center mb-8">
-            <h1 className="text-2xl font-black italic text-[#75C9D7]">BE STONE Pro</h1>
+            <h1 className="text-2xl font-black italic text-[#75C9D7]">MENU</h1>
             {isMobile && <button onClick={() => setSidebarOpen(false)}><X size={28} color="#75C9D7" /></button>}
         </div>
         <nav className="flex-1 space-y-1">
