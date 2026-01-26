@@ -291,7 +291,7 @@ export default function DashboardPage() {
       <div className={`fixed inset-0 bg-black/40 z-[140] transition-opacity duration-300 ${sidebarOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`} onClick={() => setSidebarOpen(false)} />
       <aside className={`fixed md:relative inset-y-0 left-0 z-[150] w-[75vw] md:w-80 bg-white border-r border-slate-100 p-8 shadow-2xl md:shadow-none transition-transform duration-300 transform ${sidebarOpen || !isMobile ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex justify-between items-center mb-10">
-          <h1 className="text-3xl font-black italic" style={{color: '#75C9D7'}}>BE STONE</h1>
+          <h1 className="text-3xl font-black italic" style={{color: '#75C9D7'}}>MENU</h1>
           {isMobile && <button onClick={() => setSidebarOpen(false)}><X size={32} color="#75C9D7" /></button>}
         </div>
         <nav className="flex-1 space-y-2">
