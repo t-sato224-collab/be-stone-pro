@@ -19,12 +19,11 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 1. IDとパスワードで検索
       const { data, error } = await supabase
         .from('staff')
         .select('*')
         .eq('staff_id', staffId)
-        .eq('password', password) // ※本番ではハッシュ化推奨ですが、まずは平文で実装
+        .eq('password', password)
         .single();
 
       if (error || !data) {
@@ -33,13 +32,11 @@ export default function LoginPage() {
         return;
       }
 
-      // 2. 初回ログイン判定
       if (data.is_initial_password) {
         setIsFirstLogin(true);
         setStaffRecord(data);
         setLoading(false);
       } else {
-        // 3. 通常ログイン成功
         loginSuccess(data);
       }
     } catch (err) {
@@ -56,7 +53,6 @@ export default function LoginPage() {
     }
     setLoading(true);
 
-    // パスワード更新とフラグ解除
     const { error } = await supabase
       .from('staff')
       .update({ password: newPassword, is_initial_password: false })
@@ -67,16 +63,14 @@ export default function LoginPage() {
       setLoading(false);
     } else {
       alert("パスワードを変更しました。新しいパスワードでログインします。");
-      // 更新された情報でログイン処理へ
       const updatedStaff = { ...staffRecord, password: newPassword, is_initial_password: false };
       loginSuccess(updatedStaff);
     }
   };
 
   const loginSuccess = (staffData: any) => {
-    // セッション情報の保存（簡易版）
     localStorage.setItem('staff_id', staffData.staff_id);
-    localStorage.setItem('session_key', staffData.session_key || 'demo-key'); // session_keyがない場合はデモ用
+    localStorage.setItem('session_key', staffData.session_key || 'demo-key');
     router.push('/dashboard');
   };
 
@@ -84,12 +78,12 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 text-black px-4">
       <div className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
         <div className="text-center mb-10">
-          <h1 className="text-4xl font-black italic mb-2" style={{ color: '#75C9D7' }}>BE STONE</h1>
+          {/* 修正箇所：テキストではなくロゴ画像を表示 */}
+          <img src="/logo.png" alt="BE STONE" className="w-48 mx-auto mb-4" />
           <p className="text-slate-400 font-bold text-sm">業務管理システム Pro</p>
         </div>
 
         {!isFirstLogin ? (
-          /* 通常ログインフォーム */
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
               <label className="block text-sm font-black text-slate-600 mb-2">スタッフID</label>
@@ -128,7 +122,6 @@ export default function LoginPage() {
             </button>
           </form>
         ) : (
-          /* 初回パスワード変更フォーム */
           <form onSubmit={handlePasswordChange} className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 flex items-start gap-3">
               <AlertCircle className="text-orange-500 shrink-0" size={24} />

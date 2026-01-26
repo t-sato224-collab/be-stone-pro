@@ -12,14 +12,13 @@ const QrScanner = dynamic(() => import('../../components/QrScanner'), { ssr: fal
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export default function DashboardPage() {
-  // --- 1. 状態管理 ---
   const [staff, setStaff] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [adminTasks, setAdminTasks] = useState<any[]>([]);
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [attendanceStatus, setAttendanceStatus] = useState<'offline' | 'working' | 'break'>('offline');
   const [currCard, setCurrCard] = useState<any>(null);
-  const [breaksList, setBreaksList] = useState<any[]>([]); // 今日の休憩リスト
+  const [breaksList, setBreaksList] = useState<any[]>([]);
   const [activeTask, setActiveTask] = useState<any>(null);
   const [isQrVerified, setIsQrVerified] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -48,7 +47,6 @@ export default function DashboardPage() {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   };
 
-  // 休憩時間の合計（分）を計算
   const calculateTotalBreakMins = (breaks: any[], currentBreakStart: string | null = null) => {
     let total = 0;
     breaks?.forEach((b: any) => {
@@ -56,51 +54,33 @@ export default function DashboardPage() {
         total += Math.floor((new Date(b.break_end_at).getTime() - new Date(b.break_start_at).getTime()) / 60000);
       }
     });
-    // 現在休憩中なら、その経過時間も足す
     if (currentBreakStart) {
         total += Math.floor((currentTime.getTime() - new Date(currentBreakStart).getTime()) / 60000);
     }
     return total;
   };
 
-  // 実働時間の計算（休憩を引く）
   const calculateWorkMins = (clockIn: string, clockOut: string | null, breaks: any[]) => {
     if (!clockIn) return 0;
     const end = clockOut ? new Date(clockOut) : currentTime;
     const durationMins = Math.floor((end.getTime() - new Date(clockIn).getTime()) / 60000);
     const breakMins = calculateTotalBreakMins(breaks); 
-    // 現在休憩中なら、その分は実働から引く
     return Math.max(0, durationMins - breakMins);
   };
 
-  // フロント表示用のタイマー文字列生成
   const getDisplayTimer = () => {
     if (attendanceStatus === 'offline' || !currCard) return { label: "", value: "", color: "" };
-
-    // 休憩中の表示
     if (attendanceStatus === 'break') {
         const currentBreak = breaksList.find(b => !b.break_end_at);
-        if (!currentBreak) return { label: "休憩中", value: "集計中...", color: "#F6AD55" }; // データ取得ラグ対策
-
+        if (!currentBreak) return { label: "休憩中", value: "集計中...", color: "#F6AD55" };
         const currentBreakMins = Math.floor((currentTime.getTime() - new Date(currentBreak.break_start_at).getTime()) / 60000);
         const totalBreakMins = calculateTotalBreakMins(breaksList, currentBreak.break_start_at);
-        
-        return {
-            label: "現在休憩中",
-            value: `今回: ${currentBreakMins}分 (累計: ${totalBreakMins}分)`,
-            color: "#ED8936" // オレンジ
-        };
+        return { label: "現在休憩中", value: `今回: ${currentBreakMins}分 (累計: ${totalBreakMins}分)`, color: "#ED8936" };
     }
-
-    // 勤務中の表示
     const workMins = calculateWorkMins(currCard.clock_in_at, null, breaksList);
     const h = Math.floor(workMins / 60);
     const m = workMins % 60;
-    return {
-        label: "実働時間",
-        value: `${h}時間${m}分`,
-        color: "#75C9D7" // ターコイズ
-    };
+    return { label: "実働時間", value: `${h}時間${m}分`, color: "#75C9D7" };
   };
 
   // --- 3. データ同期関数 ---
@@ -129,24 +109,18 @@ export default function DashboardPage() {
     const { data } = await supabase.from('timecards').select('*, breaks(*)').eq('staff_id', staffId).gte('work_date', startOfMonth).order('work_date', { ascending: false });
     if (data) {
       const formatted = data.map((r: any) => {
-        const breakMins = calculateTotalBreakMins(r.breaks); // 休憩合計
-        const workMins = calculateWorkMins(r.clock_in_at, r.clock_out_at, r.breaks); // 実働（休憩引いた後）
-        return { 
-            ...r, 
-            work_time: formatMinsToHHMM(workMins), 
-            break_time: formatMinsToHHMM(breakMins),
-            raw_mins: workMins 
-        };
+        const breakMins = calculateTotalBreakMins(r.breaks);
+        const workMins = calculateWorkMins(r.clock_in_at, r.clock_out_at, r.breaks);
+        return { ...r, work_time: formatMinsToHHMM(workMins), break_time: formatMinsToHHMM(breakMins), raw_mins: workMins };
       });
       setPersonalHistory(formatted);
     }
-  }, [currentTime]); // currentTime依存で再計算させる
+  }, [currentTime]);
 
   const syncStatus = useCallback(async (staffId: string) => {
     const { data: tc } = await supabase.from('timecards').select('*').eq('staff_id', staffId).is('clock_out_at', null).maybeSingle();
     if (tc) {
       setCurrCard(tc);
-      // 休憩データの取得
       const { data: brs } = await supabase.from('breaks').select('*').eq('timecard_id', tc.id);
       if (brs) {
           setBreaksList(brs);
@@ -172,7 +146,6 @@ export default function DashboardPage() {
           setMenuChoice(savedPage);
           if(savedPage.includes("監視")) fetchAdminMonitorTasks(monitorDate);
       }
-      // セッションキーのチェックは省略（ログイン画面でチェック済み前提）
       const { data: staffData } = await supabase.from('staff').select('*').eq('staff_id', savedId).single();
       if (staffData) {
         setStaff(staffData);
@@ -222,18 +195,9 @@ export default function DashboardPage() {
   const handleBreak = async () => {
     setLoading(true);
     if (attendanceStatus === 'working') {
-      // 休憩開始：breaksテーブルにインサート
-      await supabase.from('breaks').insert({ 
-          staff_id: staff.id, 
-          timecard_id: currCard?.id, 
-          break_start_at: new Date().toISOString(), 
-          work_date: new Date().toLocaleDateString('sv-SE') 
-      });
+      await supabase.from('breaks').insert({ staff_id: staff.id, timecard_id: currCard?.id, break_start_at: new Date().toISOString(), work_date: new Date().toLocaleDateString('sv-SE') });
     } else {
-      // 休憩終了：現在アクティブな休憩を閉じる
-      await supabase.from('breaks').update({ break_end_at: new Date().toISOString() })
-        .eq('staff_id', staff.id)
-        .is('break_end_at', null);
+      await supabase.from('breaks').update({ break_end_at: new Date().toISOString() }).eq('staff_id', staff.id).is('break_end_at', null);
     }
     await syncStatus(staff.id);
     setLoading(false);
@@ -248,21 +212,14 @@ export default function DashboardPage() {
       const formatted = data.map((r: any) => {
         const breakMins = calculateTotalBreakMins(r.breaks);
         const workMins = calculateWorkMins(r.clock_in_at, r.clock_out_at, r.breaks);
-        return { 
-            ...r, 
-            work_time: formatMinsToHHMM(workMins), 
-            break_time: formatMinsToHHMM(breakMins),
-            raw_mins: workMins 
-        };
+        return { ...r, work_time: formatMinsToHHMM(workMins), break_time: formatMinsToHHMM(breakMins), raw_mins: workMins };
       });
       setAdminReport(formatted);
     }
     setLoading(false);
   };
 
-  // CSV出力（休憩時間を追加）
   const downloadCSV = () => {
-    // ※フォーマット確定までの暫定版：休憩列を追加
     const headers = "名前,日付,出勤,退勤,休憩,実働\n";
     const rows = adminReport.map(r => `${r.staff_name},${r.work_date},${formatToJSTTime(r.clock_in_at)},${formatToJSTTime(r.clock_out_at)},${r.break_time},${r.work_time}`).join("\n");
     const blob = new Blob(["\uFEFF" + headers + rows], { type: 'text/csv;charset=utf-8;' });
@@ -305,8 +262,17 @@ export default function DashboardPage() {
         p, h1, h2, h3, h4, h5, span, label, td, th { color: #000000 !important; font-style: normal !important; }
         .app-card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid #edf2f7; margin-bottom: 20px; }
         
-        .menu-item { width: 100%; text-align: left; padding: 25px 20px; border-radius: 1rem; font-weight: 900; font-size: 26px; border-bottom: 2px solid #EDF2F7; transition: 0.3s; background: transparent; color: #000000 !important; }
-        .menu-item-active { background-color: #75C9D7 !important; color: #FFFFFF !important; box-shadow: 0 4px 15px rgba(117, 201, 215, 0.4); border-bottom: none; }
+        /* メニュー文字サイズを20pxに調整し、改行禁止 */
+        .menu-item { 
+            width: 100%; text-align: left; padding: 25px 20px; border-radius: 1rem; 
+            font-weight: 900; font-size: 20px; white-space: nowrap; 
+            border-bottom: 2px solid #EDF2F7; transition: 0.3s; 
+            background: transparent; color: #000000 !important; 
+        }
+        .menu-item-active { 
+            background-color: #75C9D7 !important; color: #FFFFFF !important; 
+            box-shadow: 0 4px 15px rgba(117, 201, 215, 0.4); border-bottom: none; 
+        }
         .menu-item-active span { color: #FFFFFF !important; }
 
         .btn-dark { background-color: #1a202c !important; color: #FFFFFF !important; border: none !important; }
@@ -377,7 +343,6 @@ export default function DashboardPage() {
                                 </div>
                                 <div>
                                     <p className="text-sm font-bold text-slate-400">出勤：{formatToJSTTime(currCard?.clock_in_at)}</p>
-                                    {/* --- 休憩中と勤務中で表示を切り替える --- */}
                                     <p className="text-xl font-black mt-2" style={{color: timerDisplay.color}}>
                                         {timerDisplay.label}：{timerDisplay.value}
                                     </p>
@@ -403,6 +368,22 @@ export default function DashboardPage() {
                 </div>
             )}
 
+            {menuChoice === "⚠️ 未完了タスク" && (
+                <div className="space-y-4 animate-in fade-in duration-500">
+                    <h3 className="font-black text-red-500 px-2 uppercase">やり残しタスクのリカバリー</h3>
+                    {tasks.filter(t => (t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0) < (currentTime.getHours() * 60 + currentTime.getMinutes()) - 30 && t.status !== 'completed').map(t => (
+                        <div key={t.id} className="app-card border-l-8 border-red-400 flex justify-between items-center">
+                            <div className="flex-1 pr-4">
+                                <p className="text-red-500 font-black text-xs uppercase mb-1">【遅延】{t.task_master?.target_hour}:{String(t.task_master?.target_minute).padStart(2,'0')}</p>
+                                <h5 className="text-xl font-bold">{t.task_master?.task_name}</h5>
+                                <p className="text-xs text-slate-400">{t.task_master?.locations?.name}</p>
+                            </div>
+                            <button onClick={() => handleTaskAction(t)} className="px-8 py-5 btn-red font-black rounded-2xl shadow-lg">リカバリー</button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
             {menuChoice === "🕒 自分の履歴" && (
                 <div className="space-y-4 animate-in fade-in duration-500">
                     <h3 className="text-sm font-black text-slate-400 mb-6 uppercase px-2">Personal Records</h3>
@@ -418,6 +399,37 @@ export default function DashboardPage() {
                             <div className="text-right"><div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center"><History size={18} className="text-slate-300"/></div></div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {menuChoice === "📊 監視(Admin)" && (
+                <div className="space-y-6 animate-in fade-in duration-500">
+                    <div className="app-card">
+                         <label className="text-sm font-black text-slate-400 block mb-2">確認したい日付</label>
+                         <input 
+                            type="date" 
+                            className="p-4 bg-slate-50 rounded-xl font-bold border-none w-full" 
+                            value={monitorDate} 
+                            onChange={(e) => {
+                                setMonitorDate(e.target.value);
+                                fetchAdminMonitorTasks(e.target.value);
+                            }} 
+                         />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {adminTasks.length > 0 ? adminTasks.map(t => (
+                            <div key={t.id} className="app-card p-4 text-center">
+                                <img src={`${SUPABASE_URL}/storage/v1/object/public/task-photos/${t.photo_url}`} className="rounded-2xl mb-4 aspect-square object-cover w-full shadow-sm" alt="報告写真" />
+                                <p className="text-sm font-black mb-1">{t.task_master.locations.name}</p>
+                                <h5 className="text-sm font-bold text-slate-700 mb-2">{t.task_master.task_name}</h5>
+                                <div className="bg-slate-100 rounded-lg py-1 px-2 inline-block">
+                                    <p className="text-[10px] text-slate-500 font-bold">{formatToJSTTime(t.completed_at)} 完了</p>
+                                </div>
+                            </div>
+                        )) : (
+                            <p className="col-span-3 text-center text-slate-400 py-10 font-bold">この日の完了タスクはありません</p>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -456,54 +468,6 @@ export default function DashboardPage() {
                             </table>
                         </div>
                     )}
-                </div>
-            )}
-            
-            {/* その他のメニュー（未完了タスク・監視）は変更なしのため省略せず記述 */}
-            {menuChoice === "⚠️ 未完了タスク" && (
-                <div className="space-y-4 animate-in fade-in duration-500">
-                    <h3 className="font-black text-red-500 px-2 uppercase">やり残しタスクのリカバリー</h3>
-                    {tasks.filter(t => (t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0) < (currentTime.getHours() * 60 + currentTime.getMinutes()) - 30 && t.status !== 'completed').map(t => (
-                        <div key={t.id} className="app-card border-l-8 border-red-400 flex justify-between items-center">
-                            <div className="flex-1 pr-4">
-                                <p className="text-red-500 font-black text-xs uppercase mb-1">【遅延】{t.task_master?.target_hour}:{String(t.task_master?.target_minute).padStart(2,'0')}</p>
-                                <h5 className="text-xl font-bold">{t.task_master?.task_name}</h5>
-                                <p className="text-xs text-slate-400">{t.task_master?.locations?.name}</p>
-                            </div>
-                            <button onClick={() => handleTaskAction(t)} className="px-8 py-5 btn-red font-black rounded-2xl shadow-lg">リカバリー</button>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {menuChoice === "📊 監視(Admin)" && (
-                <div className="space-y-6 animate-in fade-in duration-500">
-                    <div className="app-card">
-                         <label className="text-sm font-black text-slate-400 block mb-2">確認したい日付</label>
-                         <input 
-                            type="date" 
-                            className="p-4 bg-slate-50 rounded-xl font-bold border-none w-full" 
-                            value={monitorDate} 
-                            onChange={(e) => {
-                                setMonitorDate(e.target.value);
-                                fetchAdminMonitorTasks(e.target.value);
-                            }} 
-                         />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {adminTasks.length > 0 ? adminTasks.map(t => (
-                            <div key={t.id} className="app-card p-4 text-center">
-                                <img src={`${SUPABASE_URL}/storage/v1/object/public/task-photos/${t.photo_url}`} className="rounded-2xl mb-4 aspect-square object-cover w-full shadow-sm" alt="報告写真" />
-                                <p className="text-sm font-black mb-1">{t.task_master.locations.name}</p>
-                                <h5 className="text-sm font-bold text-slate-700 mb-2">{t.task_master.task_name}</h5>
-                                <div className="bg-slate-100 rounded-lg py-1 px-2 inline-block">
-                                    <p className="text-[10px] text-slate-500 font-bold">{formatToJSTTime(t.completed_at)} 完了</p>
-                                </div>
-                            </div>
-                        )) : (
-                            <p className="col-span-3 text-center text-slate-400 py-10 font-bold">この日の完了タスクはありません</p>
-                        )}
-                    </div>
                 </div>
             )}
         </div>
