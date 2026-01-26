@@ -545,8 +545,8 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex gap-4">
                             <button onClick={generateAdminReport} className="flex-1 py-4 btn-dark font-black rounded-2xl shadow-lg">抽出実行</button>
-                            <button onClick={downloadCSV} className="flex-1 py-4 bg-turquoise text-white font-black rounded-2xl shadow-lg flex items-center justify-center gap-2"><Download size={18}/> <span className="whitespace-nowrap">CSV出力</span></button>
-                            <button onClick={handleAddClick} className="flex-1 py-4 bg-orange-400 text-white font-black rounded-2xl shadow-lg flex items-center justify-center gap-2"><Plus size={18}/> 新規追加</button>
+                            <button onClick={downloadCSV} className="flex-1 py-4 bg-turquoise text-white font-black rounded-2xl shadow-lg flex items-center justify-center gap-2"><Download size={20}/> <span className="whitespace-nowrap">CSV出力</span></button>
+                            <button onClick={handleAddClick} className="flex-1 py-4 bg-orange-400 text-white font-black rounded-2xl shadow-lg flex items-center justify-center gap-2"><Plus size={20}/> 新規追加</button>
                         </div>
                     </div>
                     {adminReport.length > 0 && (
