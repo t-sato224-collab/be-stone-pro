@@ -4,7 +4,8 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   ClipboardList, History, LogOut, Clock, 
-  MapPin, CheckCircle2, PlayCircle, Camera, X, Loader2, Coffee, ArrowLeft, AlertTriangle, BarChart3, Download, Search, Menu
+  MapPin, CheckCircle2, PlayCircle, Camera, X, Loader2, Coffee, ArrowLeft, AlertTriangle, BarChart3, Download, Search, Menu,
+  Edit, Trash2, Plus, Save
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -12,6 +13,7 @@ const QrScanner = dynamic(() => import('../../components/QrScanner'), { ssr: fal
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export default function DashboardPage() {
+  // --- 1. 状態管理 ---
   const [staff, setStaff] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [adminTasks, setAdminTasks] = useState<any[]>([]);
@@ -30,15 +32,39 @@ export default function DashboardPage() {
   const [adminStaffList, setAdminStaffList] = useState<any[]>([]);
   const [adminReport, setAdminReport] = useState<any[]>([]);
 
+  // フィルタ用
   const [filterStaffId, setFilterStaffId] = useState<string>("all");
   const [filterStartDate, setFilterStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [filterEndDate, setFilterEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [monitorDate, setMonitorDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // 編集モーダル用
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingCard, setEditingCard] = useState<any>(null); // nullなら新規追加
+  const [editForm, setEditForm] = useState({
+    staff_id: "",
+    work_date: "",
+    clock_in_time: "",
+    clock_out_time: ""
+  });
+
   // --- 2. 時刻・計算ロジック ---
   const formatToJSTTime = (isoString: string | null) => {
     if (!isoString) return "---";
     return new Date(isoString).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+
+  const isoToTimeInput = (isoString: string | null) => {
+    if (!isoString) return "";
+    const d = new Date(isoString);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  };
+
+  const combineDateAndTime = (dateStr: string, timeStr: string) => {
+    if (!dateStr || !timeStr) return null;
+    return new Date(`${dateStr}T${timeStr}:00`).toISOString();
   };
 
   const formatMinsToHHMM = (totalMins: number) => {
@@ -66,6 +92,14 @@ export default function DashboardPage() {
     const durationMins = Math.floor((end.getTime() - new Date(clockIn).getTime()) / 60000);
     const breakMins = calculateTotalBreakMins(breaks); 
     return Math.max(0, durationMins - breakMins);
+  };
+
+  const getElapsedTimeString = () => {
+    if (!currCard || !currCard.clock_in_at || attendanceStatus === 'offline') return null;
+    const diff = currentTime.getTime() - new Date(currCard.clock_in_at).getTime();
+    const hh = Math.floor(diff / 3600000);
+    const mm = Math.floor((diff % 3600000) / 60000);
+    return `${hh}時間${mm}分`;
   };
 
   const getDisplayTimer = () => {
@@ -203,6 +237,7 @@ export default function DashboardPage() {
     setLoading(false);
   };
 
+  // --- Admin機能：抽出＆編集 ---
   const generateAdminReport = async () => {
     setLoading(true);
     let query = supabase.from('timecards').select('*, breaks(*)').gte('work_date', filterStartDate).lte('work_date', filterEndDate);
@@ -217,6 +252,75 @@ export default function DashboardPage() {
       setAdminReport(formatted);
     }
     setLoading(false);
+  };
+
+  const handleEditClick = (record: any) => {
+    setEditingCard(record);
+    setEditForm({
+      staff_id: record.staff_id,
+      work_date: record.work_date,
+      clock_in_time: isoToTimeInput(record.clock_in_at),
+      clock_out_time: isoToTimeInput(record.clock_out_at)
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleAddClick = () => {
+    setEditingCard(null);
+    setEditForm({
+      staff_id: filterStaffId !== "all" ? filterStaffId : (adminStaffList[0]?.id || ""),
+      work_date: new Date().toISOString().split('T')[0],
+      clock_in_time: "09:00",
+      clock_out_time: "18:00"
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleDeleteRecord = async (id: string) => {
+    if(!confirm("本当にこの記録を削除しますか？\n（この操作は取り消せません）")) return;
+    setLoading(true);
+    await supabase.from('breaks').delete().eq('timecard_id', id); // 関連する休憩も削除
+    await supabase.from('timecards').delete().eq('id', id);
+    await generateAdminReport();
+    setLoading(false);
+  };
+
+  const handleSaveRecord = async () => {
+    if(!editForm.staff_id || !editForm.work_date || !editForm.clock_in_time) {
+        alert("必須項目を入力してください"); return;
+    }
+    setLoading(true);
+    
+    // 時刻の生成
+    const clockInISO = combineDateAndTime(editForm.work_date, editForm.clock_in_time);
+    const clockOutISO = editForm.clock_out_time ? combineDateAndTime(editForm.work_date, editForm.clock_out_time) : null;
+    
+    // スタッフ名取得
+    const targetStaff = adminStaffList.find(s => s.id === editForm.staff_id);
+    const staffName = targetStaff ? targetStaff.name : "Unknown";
+
+    if (editingCard) {
+        // 更新
+        await supabase.from('timecards').update({
+            clock_in_at: clockInISO,
+            clock_out_at: clockOutISO,
+            work_date: editForm.work_date
+        }).eq('id', editingCard.id);
+    } else {
+        // 新規作成
+        await supabase.from('timecards').insert({
+            staff_id: editForm.staff_id,
+            staff_name: staffName,
+            clock_in_at: clockInISO,
+            clock_out_at: clockOutISO,
+            work_date: editForm.work_date
+        });
+    }
+    
+    setIsEditModalOpen(false);
+    await generateAdminReport();
+    setLoading(false);
+    alert(editingCard ? "修正しました" : "追加しました");
   };
 
   const downloadCSV = () => {
@@ -249,7 +353,6 @@ export default function DashboardPage() {
   };
 
   if (!staff) return null;
-
   const timerDisplay = getDisplayTimer();
 
   return (
@@ -262,22 +365,18 @@ export default function DashboardPage() {
         p, h1, h2, h3, h4, h5, span, label, td, th { color: #000000 !important; font-style: normal !important; }
         .app-card { background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid #edf2f7; margin-bottom: 20px; }
         
-        /* メニュー文字サイズを20pxに調整し、改行禁止 */
-        .menu-item { 
-            width: 100%; text-align: left; padding: 25px 20px; border-radius: 1rem; 
-            font-weight: 900; font-size: 20px; white-space: nowrap; 
-            border-bottom: 2px solid #EDF2F7; transition: 0.3s; 
-            background: transparent; color: #000000 !important; 
-        }
-        .menu-item-active { 
-            background-color: #75C9D7 !important; color: #FFFFFF !important; 
-            box-shadow: 0 4px 15px rgba(117, 201, 215, 0.4); border-bottom: none; 
-        }
+        .menu-item { width: 100%; text-align: left; padding: 25px 20px; border-radius: 1rem; font-weight: 900; font-size: 20px; white-space: nowrap; border-bottom: 2px solid #EDF2F7; transition: 0.3s; background: transparent; color: #000000 !important; }
+        .menu-item-active { background-color: #75C9D7 !important; color: #FFFFFF !important; box-shadow: 0 4px 15px rgba(117, 201, 215, 0.4); border-bottom: none; }
         .menu-item-active span { color: #FFFFFF !important; }
 
         .btn-dark { background-color: #1a202c !important; color: #FFFFFF !important; border: none !important; }
         .btn-turquoise { background-color: #75C9D7 !important; color: #FFFFFF !important; border: none !important; }
         .btn-red { background-color: #E53E3E !important; color: white !important; }
+        
+        /* モーダル用 */
+        input[type="time"], input[type="date"], select {
+            border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.5rem; font-weight: bold;
+        }
       `}</style>
 
       {/* ハンバーガー */}
@@ -291,7 +390,7 @@ export default function DashboardPage() {
       <div className={`fixed inset-0 bg-black/40 z-[140] transition-opacity duration-300 ${sidebarOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`} onClick={() => setSidebarOpen(false)} />
       <aside className={`fixed md:relative inset-y-0 left-0 z-[150] w-[75vw] md:w-80 bg-white border-r border-slate-100 p-8 shadow-2xl md:shadow-none transition-transform duration-300 transform ${sidebarOpen || !isMobile ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex justify-between items-center mb-10">
-          <h1 className="text-3xl font-black italic" style={{color: '#75C9D7'}}>MENU</h1>
+          <h1 className="text-3xl font-black italic" style={{color: '#75C9D7'}}>BE STONE</h1>
           {isMobile && <button onClick={() => setSidebarOpen(false)}><X size={32} color="#75C9D7" /></button>}
         </div>
         <nav className="flex-1 space-y-2">
@@ -447,13 +546,20 @@ export default function DashboardPage() {
                         <div className="flex gap-4">
                             <button onClick={generateAdminReport} className="flex-1 py-4 btn-dark font-black rounded-2xl shadow-lg">抽出実行</button>
                             <button onClick={downloadCSV} className="flex-1 py-4 btn-turquoise font-black rounded-2xl shadow-lg flex items-center justify-center gap-2"><Download size={20}/> CSV出力</button>
+                            <button onClick={handleAddClick} className="flex-1 py-4 bg-orange-400 text-white font-black rounded-2xl shadow-lg flex items-center justify-center gap-2"><Plus size={20}/> 新規追加</button>
                         </div>
                     </div>
                     {adminReport.length > 0 && (
                         <div className="overflow-x-auto text-sm">
                             <table className="w-full text-left">
                                 <thead className="border-b-2 border-slate-100">
-                                    <tr><th className="py-4 font-black">名前</th><th className="py-4 font-black">日付</th><th className="py-4 font-black text-right">休憩</th><th className="py-4 font-black text-right">実働</th></tr>
+                                    <tr>
+                                        <th className="py-4 font-black">名前</th>
+                                        <th className="py-4 font-black">日付</th>
+                                        <th className="py-4 font-black text-right">休憩</th>
+                                        <th className="py-4 font-black text-right">実働</th>
+                                        <th className="py-4 font-black text-center">操作</th>
+                                    </tr>
                                 </thead>
                                 <tbody>
                                     {adminReport.map(r => (
@@ -462,6 +568,12 @@ export default function DashboardPage() {
                                             <td className="py-4 text-slate-500">{r.work_date}</td>
                                             <td className="py-4 font-bold text-right text-orange-400">{r.break_time}</td>
                                             <td className={`py-4 font-black text-right text-lg ${r.raw_mins >= 420 ? 'text-red-500' : 'text-slate-700'}`}>{r.work_time}</td>
+                                            <td className="py-4 text-center">
+                                                <div className="flex justify-center gap-2">
+                                                    <button onClick={() => handleEditClick(r)} className="p-2 bg-slate-100 text-slate-600 rounded-lg"><Edit size={16}/></button>
+                                                    <button onClick={() => handleDeleteRecord(r.id)} className="p-2 bg-red-50 text-red-500 rounded-lg"><Trash2 size={16}/></button>
+                                                </div>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -472,6 +584,46 @@ export default function DashboardPage() {
             )}
         </div>
       </main>
+
+      {/* 編集・追加モーダル */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-[400] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl animate-in fade-in zoom-in duration-300">
+                <h3 className="text-xl font-black mb-6 text-center">{editingCard ? '📝 記録の修正' : '✨ 新規追加'}</h3>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-400 mb-1">スタッフ</label>
+                        <select 
+                            className="w-full p-3 bg-slate-50 rounded-xl font-bold border border-slate-200"
+                            value={editForm.staff_id}
+                            onChange={(e) => setEditForm({...editForm, staff_id: e.target.value})}
+                            disabled={!!editingCard}
+                        >
+                            {adminStaffList.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-400 mb-1">日付</label>
+                        <input type="date" className="w-full" value={editForm.work_date} onChange={(e) => setEditForm({...editForm, work_date: e.target.value})} />
+                    </div>
+                    <div className="flex gap-4">
+                        <div className="flex-1">
+                            <label className="block text-xs font-bold text-slate-400 mb-1">出勤時刻</label>
+                            <input type="time" className="w-full" value={editForm.clock_in_time} onChange={(e) => setEditForm({...editForm, clock_in_time: e.target.value})} />
+                        </div>
+                        <div className="flex-1">
+                            <label className="block text-xs font-bold text-slate-400 mb-1">退勤時刻</label>
+                            <input type="time" className="w-full" value={editForm.clock_out_time} onChange={(e) => setEditForm({...editForm, clock_out_time: e.target.value})} />
+                        </div>
+                    </div>
+                </div>
+                <div className="flex gap-3 mt-8">
+                    <button onClick={() => setIsEditModalOpen(false)} className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-xl font-bold">キャンセル</button>
+                    <button onClick={handleSaveRecord} className="flex-1 py-3 bg-[#75C9D7] text-white rounded-xl font-bold flex items-center justify-center gap-2"><Save size={18}/> 保存</button>
+                </div>
+            </div>
+        </div>
+      )}
 
       {/* 作業中オーバーレイ */}
       {activeTask && (
