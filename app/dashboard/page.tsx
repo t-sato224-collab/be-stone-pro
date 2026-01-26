@@ -544,30 +544,33 @@ export default function DashboardPage() {
                   <input type="date" className="p-4 bg-slate-50 rounded-xl font-bold border-none" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} />
                 </div>
                 <div className="flex gap-4">
-                  <button
-                    onClick={generateAdminReport}
-                    className="flex-1 py-4 px-6 btn-dark text-white font-black rounded-2xl shadow-lg whitespace-nowrap"
-                  >
-                    抽出実行
-                  </button>
+                  <div className="flex gap-4">
+                    <button
+                      onClick={generateAdminReport}
+                      className="flex-1 py-4 btn-dark font-black rounded-2xl shadow-lg whitespace-nowrap"
+                    >
+                      抽出実行
+                    </button>
 
-                  <button
-                    onClick={downloadCSV}
-                    className="flex-1 py-4 px-6 btn-turquoise text-white font-black rounded-2xl shadow-lg flex items-center justify-center gap-2 whitespace-nowrap"
-                  >
-                    <Download size={18} className="shrink-0" />
-                    CSV出力
-                  </button>
+                    <button
+                      onClick={downloadCSV}
+                      className="flex-1 py-4 btn-turquoise font-black rounded-2xl shadow-lg
+               flex items-center justify-center gap-2 whitespace-nowrap"
+                    > <Download size={20} className="text-white" />
+                      <span className="text-white whitespace-nowrap">CSV出力</span>
+                    </button>
 
-                  <button
-                    onClick={handleAddClick}
-                    className="flex-1 py-4 px-6 bg-orange-400 text-white font-black rounded-2xl shadow-lg flex items-center justify-center gap-2 whitespace-nowrap"
-                  >
-                    <Plus size={18} className="shrink-0" />
-                    新規追加
-                  </button>
+                    <button
+                      onClick={handleAddClick}
+                      className="flex-1 py-4 bg-orange-400 text-white font-black rounded-2xl shadow-lg
+               flex items-center justify-center gap-2 whitespace-nowrap"
+                    >
+                      <Plus size={20} className="text-white" />
+                      <span className="text-white whitespace-nowrap">新規追加</span>
+                    </button>
+                  </div>
+
                 </div>
-
               </div>
               {adminReport.length > 0 && (
                 <div className="overflow-x-auto text-sm">
