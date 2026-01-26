@@ -225,7 +225,7 @@ export default function DashboardPage() {
           {menuChoice === "⚠️ 未完了タスク" && overdueTasks.map(t => (
             <div key={t.id} className="app-card border-l-8 border-red-400 flex justify-between items-center text-black">
               <div className="flex-1 pr-4"><p className="text-red-500 font-black text-xs">【遅延】{t.task_master?.target_hour}:00</p><h5 className="text-lg font-bold">{t.task_master?.task_name}</h5><p className="text-xs text-slate-400">{t.task_master?.locations?.name}</p></div>
-              <button onClick={() => handleTaskAction(t)} className={`px-8 py-4 font-black rounded-xl text-white border-none ${t.status === 'started' ? 'bg-orange-500' : 'bg-[#E53E3E]'}`}>{t.status === 'started' ? '再開' : '対応'}</button>
+              <button onClick={() => handleTaskAction(t)} className={`px-8 py-4 font-black rounded-xl text-white border-none ${t.status === 'started' ? 'bg-orange-500' : 'bg-[#E53E3E]'}`}>{t.status === 'started' ? '再開' : 'リカバリー'}</button>
             </div>
           ))}
 
@@ -282,7 +282,7 @@ export default function DashboardPage() {
       {activeTask && (
         <div className="fixed inset-0 bg-white z-[300] flex flex-col p-6 pt-10 overflow-y-auto text-center text-black">
           <div className="flex justify-between items-center mb-8 px-2">
-            <button onClick={() => setActiveTask(null)} className="p-3 bg-slate-50 rounded-xl border-none"><PauseCircle size={20}/><h3>イレギュラー対応</h3></button>
+            <button onClick={() => setActiveTask(null)} className="p-3 bg-slate-50 rounded-xl border-none"><h3>x<PauseCircle size={20}/>一時中止</h3></button>
             <h2 className="text-lg font-black italic">MISSION</h2><div className="w-10"></div>
           </div>
           {!isQrVerified ? <QrScanner onScanSuccess={onQrScan} /> : (
