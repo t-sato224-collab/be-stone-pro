@@ -547,12 +547,11 @@ export default function DashboardPage() {
                   <button onClick={generateAdminReport} className="flex-1 py-4 btn-dark font-black rounded-2xl shadow-lg">抽出実行</button>
                   <button
                     onClick={downloadCSV}
-                    className="flex-1 py-4 btn-turquoise font-black rounded-2xl shadow-lg flex items-center justify-center gap-2 whitespace-nowrap text-white"
+                    className="flex-[1.15] py-4 btn-turquoise font-black rounded-2xl shadow-lg flex items-center justify-center gap-3 whitespace-nowrap px-6 tracking-wide"
                   >
-                    <Download size={20} className="text-white" />
-                    <span className="text-white">CSV出力</span>
+                    <Download size={20} style={{ color: '#ffffff' }} />
+                    <span style={{ color: '#ffffff' }}>CSV出力</span>
                   </button>
-
                   <button onClick={handleAddClick} className="flex-1 py-4 bg-orange-400 text-white font-black rounded-2xl shadow-lg flex items-center justify-center gap-2"><Plus size={20} /> 新規追加</button>
                 </div>
               </div>
