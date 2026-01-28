@@ -13,6 +13,7 @@ const QrScanner = memo(QrScannerRaw);
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export default function DashboardPage() {
+  // --- 1. 状態管理 ---
   const [staff, setStaff] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [adminTasks, setAdminTasks] = useState<any[]>([]);
@@ -40,18 +41,16 @@ export default function DashboardPage() {
   const [deleteReason, setDeleteReason] = useState("");
   const [editForm, setEditForm] = useState({ staff_id: "", work_date: "", clock_in_time: "", clock_out_time: "", break_mins: "0" });
 
-  // --- ユーティリティ ---
-  // JST現在時刻のISO文字列生成（+09:00付与）
-  const getJSTISO = () => {
-    const now = new Date();
-    // UTCから9時間進めた時刻を取得
-    const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    // Zを削除し、+09:00を付与
-    return jst.toISOString().replace('Z', '+09:00');
+  // --- 2. 補助関数 ---
+  const formatToJSTTime = (s: string | null) => s ? new Date(s).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) : "---";
+  
+  // ISO時刻からHH:MMを抽出（JST補正）
+  const isoToTime = (s: string | null) => {
+    if (!s) return "";
+    const d = new Date(new Date(s).getTime() + (new Date(s).getTimezoneOffset() + 540) * 60000);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
-  const formatToJSTTime = (s: string | null) => s ? new Date(s).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) : "---";
-  const isoToTime = (s: string | null) => s ? `${String(new Date(s).getHours()).padStart(2,'0')}:${String(new Date(s).getMinutes()).padStart(2,'0')}` : "";
   const formatHHMM = (m: number) => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
   const minDateLimit = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().split('T')[0]; }, []);
   const todayISO = useMemo(() => new Date().toISOString().split('T')[0], []);
@@ -69,6 +68,7 @@ export default function DashboardPage() {
     return Math.max(0, diff - calculateTotalBreak(brks, !cOut));
   };
 
+  // --- 3. データ同期 ---
   const fetchTasks = useCallback(async () => {
     const todayStr = new Date().toLocaleDateString('sv-SE');
     const todayDay = new Date().getDay();
@@ -121,6 +121,7 @@ export default function DashboardPage() {
     return () => { clearInterval(timer); window.removeEventListener('resize', resizer); };
   }, [syncStatus]);
 
+  // --- 4. 業務ロジック ---
   const displayTasks = useMemo(() => {
     const cur = currentTime.getHours() * 60 + currentTime.getMinutes();
     return tasks.filter(t => Math.abs(cur - ((t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0))) <= 30).sort((a,b)=>((a.task_master?.target_hour||0)*60+(a.task_master?.target_minute||0))-((b.task_master?.target_hour||0)*60+(b.task_master?.target_minute||0)));
@@ -131,11 +132,12 @@ export default function DashboardPage() {
     return tasks.filter(t => ((t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0)) < cur - 30 && t.status !== 'completed').sort((a,b)=>((a.task_master?.target_hour||0)*60+(a.task_master?.target_minute||0))-((b.task_master?.target_hour||0)*60+(b.task_master?.target_minute||0)));
   }, [tasks, currentTime]);
 
-  // --- アクションハンドラ（JST強制適用） ---
+  // --- 5. アクションハンドラ ---
   const handleClockAction = async (type: 'in' | 'out' | 'break') => {
     setLoading(true);
-    const nowJST = getJSTISO(); // ここで+09:00の時刻文字を生成
-    
+    // 自動打刻用JST (+09:00)
+    const nowJST = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().replace('Z', '+09:00');
+
     if (type === 'in') await supabase.from('timecards').insert({ staff_id: staff.id, staff_name: staff.name, clock_in_at: nowJST, work_date: todayISO });
     if (type === 'out') { if(!confirm("退勤を記録しますか？")) { setLoading(false); return; } await supabase.from('timecards').update({ clock_out_at: nowJST }).eq('staff_id', staff.id).is('clock_out_at', null); }
     if (type === 'break') {
@@ -149,7 +151,8 @@ export default function DashboardPage() {
 
   const onQrScan = useCallback(async (txt: string) => {
     if (activeTask && txt === activeTask.task_master?.locations?.qr_token) {
-      await supabase.from('task_logs').update({ status: 'started', started_at: getJSTISO(), staff_id: staff.id }).eq('id', activeTask.id);
+      const nowJST = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().replace('Z', '+09:00');
+      await supabase.from('task_logs').update({ status: 'started', started_at: nowJST, staff_id: staff.id }).eq('id', activeTask.id);
       setIsQrVerified(true); fetchTasks();
     } else if (activeTask) { alert("場所が違います"); }
   }, [activeTask, fetchTasks, staff]);
@@ -170,8 +173,9 @@ export default function DashboardPage() {
           canvas.toBlob(async (blob) => {
             if (blob) {
               const fn = `${activeTask.id}-${Date.now()}.jpg`;
+              const nowJST = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().replace('Z', '+09:00');
               await supabase.storage.from('task-photos').upload(fn, blob);
-              await supabase.from('task_logs').update({ status: 'completed', completed_at: getJSTISO(), photo_url: fn, staff_id: staff.id }).eq('id', activeTask.id);
+              await supabase.from('task_logs').update({ status: 'completed', completed_at: nowJST, photo_url: fn, staff_id: staff.id }).eq('id', activeTask.id);
               setActiveTask(null); setIsQrVerified(false); fetchTasks(); alert("報告完了");
             }
             setLoading(false);
@@ -202,19 +206,33 @@ export default function DashboardPage() {
     setIsEditModalOpen(true);
   };
 
+  // --- 【日またぎ対応】保存ロジック ---
   const handleSaveRecord = async () => {
     setLoading(true);
-    // 手動入力時も +09:00 を付与して統一
     const cIn = `${editForm.work_date}T${editForm.clock_in_time}:00+09:00`;
-    const cOut = editForm.clock_out_time ? `${editForm.work_date}T${editForm.clock_out_time}:00+09:00` : null;
+    
+    // 退勤時刻が入力されている場合
+    let cOut = null;
+    if (editForm.clock_out_time) {
+        // 出勤時刻より退勤時刻が小さい（例: 23:00出勤、09:00退勤）場合、退勤は翌日と判断
+        if (editForm.clock_out_time < editForm.clock_in_time) {
+            const nextDay = new Date(new Date(editForm.work_date).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            cOut = `${nextDay}T${editForm.clock_out_time}:00+09:00`;
+        } else {
+            cOut = `${editForm.work_date}T${editForm.clock_out_time}:00+09:00`;
+        }
+    }
+
     let cardId = editingCard?.id;
     if (editingCard) await supabase.from('timecards').update({ clock_in_at: cIn, clock_out_at: cOut, work_date: editForm.work_date }).eq('id', cardId);
     else { const res = await supabase.from('timecards').insert({ staff_id: editForm.staff_id, staff_name: adminStaffList.find(x => x.id === editForm.staff_id)?.name, clock_in_at: cIn, clock_out_at: cOut, work_date: editForm.work_date }).select(); cardId = res.data?.[0]?.id; }
+    
     if (cardId) {
       await supabase.from('breaks').delete().eq('timecard_id', cardId);
       if (parseInt(editForm.break_mins) > 0) {
-        const bS = cIn; const bE = new Date(new Date(cIn).getTime() + parseInt(editForm.break_mins) * 60000).toISOString().replace('Z', '+09:00');
-        await supabase.from('breaks').insert({ staff_id: editingCard?.staff_id || editForm.staff_id, timecard_id: cardId, break_start_at: bS, break_end_at: bE, work_date: editForm.work_date });
+        // 休憩開始は出勤時刻とし、終了はそこから指定分数後とする（簡易計算用）
+        const bE = new Date(new Date(cIn).getTime() + parseInt(editForm.break_mins) * 60000).toISOString().replace('Z', '+09:00');
+        await supabase.from('breaks').insert({ staff_id: editingCard?.staff_id || editForm.staff_id, timecard_id: cardId, break_start_at: cIn, break_end_at: bE, work_date: editForm.work_date });
       }
     }
     setIsEditModalOpen(false); await generateAdminReport(); setLoading(false);
@@ -237,6 +255,7 @@ export default function DashboardPage() {
         .app-card { background: white; padding: 22px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid #edf2f7; margin-bottom: 20px; }
         .menu-item { width: 100%; text-align: left; padding: 18px 20px; border-radius: 1rem; font-weight: 900; font-size: 20px; white-space: nowrap; border-bottom: 1px solid #EDF2F7; background: transparent; color: #000000 !important; }
         .menu-item-active { background-color: #75C9D7 !important; color: white !important; border: none; }
+        .menu-item-active span { color: white !important; }
         .admin-grid-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px 2px; font-size: 11px; font-weight: 900; border-radius: 12px; border: none; color: white !important; cursor: pointer; }
       `}</style>
 
@@ -288,7 +307,7 @@ export default function DashboardPage() {
 
           {menuChoice === "📊 監視(Admin)" && (
             <div className="space-y-6 text-black">
-              <div className="app-card py-4"><input type="date" className="p-4 bg-slate-50 rounded-xl font-bold border-none w-full text-center text-black" min={minDateLimit} max={todayISO} value={monitorDate} onChange={e => {setMonitorDate(e.target.value); fetchAdminMonitor(e.target.value);}} /></div>
+              <div className="app-card py-4"><input type="date" className="p-4 bg-slate-50 rounded-xl font-bold border-none w-full text-center" min={minDateLimit} max={todayISO} value={monitorDate} onChange={e => {setMonitorDate(e.target.value); fetchAdminMonitor(e.target.value);}} /></div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-black text-center">
                 {adminTasks.map(t => (
                   <div key={t.id} className="app-card p-3 border-b-4 border-[#75C9D7] text-black">
@@ -326,7 +345,7 @@ export default function DashboardPage() {
 
       {activeTask && (
         <div className="fixed inset-0 bg-white z-[300] flex flex-col p-6 pt-10 overflow-y-auto text-center text-black">
-          <div className="flex justify-between items-center mb-8 px-2"><button onClick={() => setActiveTask(null)} className="p-3 bg-slate-50 rounded-xl border-none text-black"><PauseCircle size={20}/></button><h2 className="text-lg font-black italic">MISSION</h2><div className="w-10"></div></div>
+          <div className="flex justify-between items-center mb-8 px-2"><button onClick={() => setActiveTask(null)} className="p-3 bg-slate-100 rounded-xl border-none text-black"><PauseCircle size={20}/></button><h2 className="text-lg font-black italic">MISSION</h2><div className="w-10"></div></div>
           {!isQrVerified ? <QrScanner onScanSuccess={onQrScan} /> : <div className="space-y-8 animate-in zoom-in duration-300 text-black"><CheckCircle2 size={64} className="text-green-500 mx-auto" /><p className="font-black text-xl text-black">{activeTask.task_master?.task_name}</p><p className="text-xs font-bold text-slate-400 text-center">担当：{staff.name}</p><label className="block w-full px-4 cursor-pointer text-black"><div className="w-full py-8 bg-[#75C9D7] text-white font-black rounded-3xl shadow-xl flex items-center justify-center gap-3 text-xl active:scale-95 transition-all"><Camera size={32}/>完了撮影</div><input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleTaskComplete} /></label></div>}
         </div>
       )}
@@ -339,7 +358,7 @@ export default function DashboardPage() {
               <div><label className="text-[10px] font-black text-slate-400 ml-1">スタッフ</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={editForm.staff_id} onChange={e => setEditForm({...editForm, staff_id: e.target.value})} disabled={!!editingCard}>{adminStaffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
               <div><label className="text-[10px] font-black text-slate-400 ml-1 text-black">日付</label><input type="date" className="w-full p-3 bg-slate-50 rounded-xl border-none text-sm font-bold text-black" value={editForm.work_date} onChange={e => setEditForm({...editForm, work_date: e.target.value})} /></div>
               <div className="flex gap-3 text-black"><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1 text-black">出勤</label><input type="time" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={editForm.clock_in_time} onChange={e => setEditForm({...editForm, clock_in_time: e.target.value})} /></div><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1 text-black">退勤</label><input type="time" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={editForm.clock_out_time} onChange={e => setEditForm({...editForm, clock_out_time: e.target.value})} /></div></div>
-              <div><label className="text-[10px] font-black text-slate-400 ml-1">休憩(分)</label><input type="number" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={editForm.break_mins} onChange={e => setEditForm({...editForm, break_mins: e.target.value})} /></div>
+              <div><label className="text-[10px] font-black text-slate-400 ml-1 text-black">休憩(分)</label><input type="number" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={editForm.break_mins} onChange={e => setEditForm({...editForm, break_mins: e.target.value})} /></div>
             </div>
             <div className="flex gap-3 mt-8 text-black">
               <button onClick={() => setIsEditModalOpen(false)} className="flex-1 py-3 bg-slate-50 text-slate-400 font-black rounded-xl border-none">中止</button>
