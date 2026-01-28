@@ -13,7 +13,6 @@ const QrScanner = memo(QrScannerRaw);
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export default function DashboardPage() {
-  // --- 1. 状態管理 ---
   const [staff, setStaff] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [adminTasks, setAdminTasks] = useState<any[]>([]);
@@ -51,13 +50,27 @@ export default function DashboardPage() {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
-  const formatHHMM = (m: number) => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+  const formatHHMM = (m: number) => {
+    if (m < 0) return "00:00"; // マイナス時間は00:00と表示（安全装置）
+    return `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+  };
+
   const minDateLimit = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().split('T')[0]; }, []);
   const todayISO = useMemo(() => new Date().toISOString().split('T')[0], []);
 
+  // 休憩計算（安全装置付き）
   const calculateTotalBreak = useCallback((brks: any[], includeActive: boolean = false) => {
-    let t = 0; brks?.forEach(b => { if (b.break_start_at && b.break_end_at) t += Math.round((new Date(b.break_end_at).getTime() - new Date(b.break_start_at).getTime())/60000); });
-    if (includeActive) { const a = brks?.find(b => !b.break_end_at); if (a) t += Math.round((currentTime.getTime() - new Date(a.break_start_at).getTime())/60000); }
+    let t = 0; 
+    brks?.forEach(b => { 
+      if (b.break_start_at && b.break_end_at) {
+        const diff = Math.round((new Date(b.break_end_at).getTime() - new Date(b.break_start_at).getTime())/60000);
+        t += Math.max(0, diff); // マイナスの休憩は無視
+      } 
+    });
+    if (includeActive) { 
+        const active = brks?.find(b => !b.break_end_at); 
+        if (active) t += Math.max(0, Math.round((currentTime.getTime() - new Date(active.break_start_at).getTime())/60000));
+    }
     return t;
   }, [currentTime]);
 
@@ -121,7 +134,6 @@ export default function DashboardPage() {
     return () => { clearInterval(timer); window.removeEventListener('resize', resizer); };
   }, [syncStatus]);
 
-  // --- 4. 業務ロジック ---
   const displayTasks = useMemo(() => {
     const cur = currentTime.getHours() * 60 + currentTime.getMinutes();
     return tasks.filter(t => Math.abs(cur - ((t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0))) <= 30).sort((a,b)=>((a.task_master?.target_hour||0)*60+(a.task_master?.target_minute||0))-((b.task_master?.target_hour||0)*60+(b.task_master?.target_minute||0)));
@@ -135,9 +147,8 @@ export default function DashboardPage() {
   // --- 5. アクションハンドラ ---
   const handleClockAction = async (type: 'in' | 'out' | 'break') => {
     setLoading(true);
-    // 自動打刻用JST (+09:00)
     const nowJST = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().replace('Z', '+09:00');
-
+    
     if (type === 'in') await supabase.from('timecards').insert({ staff_id: staff.id, staff_name: staff.name, clock_in_at: nowJST, work_date: todayISO });
     if (type === 'out') { if(!confirm("退勤を記録しますか？")) { setLoading(false); return; } await supabase.from('timecards').update({ clock_out_at: nowJST }).eq('staff_id', staff.id).is('clock_out_at', null); }
     if (type === 'break') {
@@ -202,20 +213,24 @@ export default function DashboardPage() {
 
   const handleEditClick = (record: any) => {
     setEditingCard(record);
-    setEditForm({ staff_id: record.staff_id, work_date: record.work_date, clock_in_time: isoToTime(record.clock_in_at), clock_out_time: isoToTime(record.clock_out_at), break_mins: String(calculateTotalBreak(record.breaks)) });
+    const bMins = record.breaks?.reduce((acc: number, b: any) => {
+        const diff = (b.break_start_at && b.break_end_at) ? Math.round((new Date(b.break_end_at).getTime() - new Date(b.break_start_at).getTime())/60000) : 0;
+        return acc + Math.max(0, diff);
+    }, 0);
+    setEditForm({ staff_id: record.staff_id, work_date: record.work_date, clock_in_time: isoToTime(record.clock_in_at), clock_out_time: isoToTime(record.clock_out_at), break_mins: String(bMins || 0) });
     setIsEditModalOpen(true);
   };
 
-  // --- 【日またぎ対応】保存ロジック ---
+  // --- 【重要】保存ロジック（日またぎ対応） ---
   const handleSaveRecord = async () => {
     setLoading(true);
     const cIn = `${editForm.work_date}T${editForm.clock_in_time}:00+09:00`;
     
-    // 退勤時刻が入力されている場合
+    // 退勤時刻の計算（翌日判定）
     let cOut = null;
     if (editForm.clock_out_time) {
-        // 出勤時刻より退勤時刻が小さい（例: 23:00出勤、09:00退勤）場合、退勤は翌日と判断
         if (editForm.clock_out_time < editForm.clock_in_time) {
+            // 退勤が出勤より小さい場合、翌日として扱う
             const nextDay = new Date(new Date(editForm.work_date).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
             cOut = `${nextDay}T${editForm.clock_out_time}:00+09:00`;
         } else {
@@ -227,12 +242,25 @@ export default function DashboardPage() {
     if (editingCard) await supabase.from('timecards').update({ clock_in_at: cIn, clock_out_at: cOut, work_date: editForm.work_date }).eq('id', cardId);
     else { const res = await supabase.from('timecards').insert({ staff_id: editForm.staff_id, staff_name: adminStaffList.find(x => x.id === editForm.staff_id)?.name, clock_in_at: cIn, clock_out_at: cOut, work_date: editForm.work_date }).select(); cardId = res.data?.[0]?.id; }
     
+    // 休憩時間の保存（出勤時刻から指定分数を加算）
     if (cardId) {
       await supabase.from('breaks').delete().eq('timecard_id', cardId);
-      if (parseInt(editForm.break_mins) > 0) {
-        // 休憩開始は出勤時刻とし、終了はそこから指定分数後とする（簡易計算用）
-        const bE = new Date(new Date(cIn).getTime() + parseInt(editForm.break_mins) * 60000).toISOString().replace('Z', '+09:00');
-        await supabase.from('breaks').insert({ staff_id: editingCard?.staff_id || editForm.staff_id, timecard_id: cardId, break_start_at: cIn, break_end_at: bE, work_date: editForm.work_date });
+      const bMins = parseInt(editForm.break_mins);
+      if (bMins > 0) {
+        const bS_Date = new Date(cIn); // Dateオブジェクト化
+        const bE_Date = new Date(bS_Date.getTime() + bMins * 60000); // 分数を加算
+        // JST文字列に戻す
+        const bS_Str = bS_Date.toISOString().replace('Z', '+09:00').replace(/\.\d{3}/, ''); // ミリ秒カット
+        const bE_Str = bE_Date.toISOString().replace('Z', '+09:00').replace(/\.\d{3}/, '');
+
+        // 日時計算のズレを完全に防ぐため、計算済みのISO文字列を+09:00付きで保存
+        // ※ここでは簡易的にISOString変換後に補正していますが、cIn/cOut同様に手動構築がベスト
+        // しかしbreakは計算結果なのでDate計算を利用し、UTCズレを補正して保存します
+        const offset = 9 * 60; // JST offset
+        const bS_JST = new Date(bS_Date.getTime() + offset * 60000).toISOString().replace('Z', '+09:00');
+        const bE_JST = new Date(bE_Date.getTime() + offset * 60000).toISOString().replace('Z', '+09:00');
+
+        await supabase.from('breaks').insert({ staff_id: editingCard?.staff_id || editForm.staff_id, timecard_id: cardId, break_start_at: bS_JST, break_end_at: bE_JST, work_date: editForm.work_date });
       }
     }
     setIsEditModalOpen(false); await generateAdminReport(); setLoading(false);
@@ -255,7 +283,6 @@ export default function DashboardPage() {
         .app-card { background: white; padding: 22px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); border: 1px solid #edf2f7; margin-bottom: 20px; }
         .menu-item { width: 100%; text-align: left; padding: 18px 20px; border-radius: 1rem; font-weight: 900; font-size: 20px; white-space: nowrap; border-bottom: 1px solid #EDF2F7; background: transparent; color: #000000 !important; }
         .menu-item-active { background-color: #75C9D7 !important; color: white !important; border: none; }
-        .menu-item-active span { color: white !important; }
         .admin-grid-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px 2px; font-size: 11px; font-weight: 900; border-radius: 12px; border: none; color: white !important; cursor: pointer; }
       `}</style>
 
@@ -307,7 +334,7 @@ export default function DashboardPage() {
 
           {menuChoice === "📊 監視(Admin)" && (
             <div className="space-y-6 text-black">
-              <div className="app-card py-4"><input type="date" className="p-4 bg-slate-50 rounded-xl font-bold border-none w-full text-center" min={minDateLimit} max={todayISO} value={monitorDate} onChange={e => {setMonitorDate(e.target.value); fetchAdminMonitor(e.target.value);}} /></div>
+              <div className="app-card py-4"><input type="date" className="p-4 bg-slate-50 rounded-xl font-bold border-none w-full text-center text-black" min={minDateLimit} max={todayISO} value={monitorDate} onChange={e => {setMonitorDate(e.target.value); fetchAdminMonitor(e.target.value);}} /></div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-black text-center">
                 {adminTasks.map(t => (
                   <div key={t.id} className="app-card p-3 border-b-4 border-[#75C9D7] text-black">
