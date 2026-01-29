@@ -255,18 +255,32 @@ export default function DashboardPage() {
     if (!staffForm.staff_id || !staffForm.name) { alert("IDと名前は必須です"); return; }
     const duplicateId = adminStaffList.find((s: any) => s.staff_id === staffForm.staff_id && s.id !== editingStaff?.id);
     if (duplicateId) { alert("IDが重複しています。"); return; }
-    const duplicateName = adminStaffList.find((s: any) => s.name === staffForm.name && s.id !== editingStaff?.id);
-    if (duplicateName) { if (!confirm(`「${staffForm.name}」さんは既に登録されています。\n同姓同名の別人として登録しますか？`)) return; }
-
+    
     setLoading(true);
-    const payload = {
-        staff_id: staffForm.staff_id, name: staffForm.name, role: staffForm.role,
-        address: staffForm.address, birth_date: staffForm.birth_date || null,
-        hire_date: staffForm.hire_date || null, resignation_date: staffForm.resignation_date || null,
+    const payload: any = { // 型をanyにするか適切に定義
+        staff_id: staffForm.staff_id, 
+        name: staffForm.name, 
+        role: staffForm.role,
+        address: staffForm.address, 
+        birth_date: staffForm.birth_date || null,
+        hire_date: staffForm.hire_date || null, 
+        resignation_date: staffForm.resignation_date || null,
         is_active: staffForm.is_active
     };
-    if (!editingStaff) { Object.assign(payload, { password: staffForm.password || "1234", is_initial_password: true, is_active: true }); }
-    else if (staffForm.password) { Object.assign(payload, { password: staffForm.password, is_initial_password: true }); }
+
+    if (!editingStaff) { 
+        // --- 新規登録時の修正ポイント ---
+        Object.assign(payload, { 
+            password: staffForm.password || "1234", 
+            is_initial_password: true, 
+            is_active: true,
+            // session_key を生成して追加
+            session_key: crypto.randomUUID() 
+        }); 
+    }
+    else if (staffForm.password) { 
+        Object.assign(payload, { password: staffForm.password, is_initial_password: true }); 
+    }
 
     if (editingStaff) await supabase.from('staff').update(payload).eq('id', editingStaff.id);
     else await supabase.from('staff').insert(payload);
