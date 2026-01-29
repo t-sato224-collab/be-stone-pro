@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback, useMemo, memo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   Clock, CheckCircle2, Camera, X, Loader2, Coffee, ArrowLeft, 
-  Download, Search, Menu, Edit, Trash2, Plus, Save, PauseCircle, UserCheck, AlertTriangle, Archive, RefreshCcw
+  Download, Search, Menu, Edit, Trash2, Plus, Save, PauseCircle, UserCheck, AlertTriangle, Archive, RefreshCcw, CalendarDays
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -38,15 +38,18 @@ export default function DashboardPage() {
   
   const [showRetiredStaff, setShowRetiredStaff] = useState(false);
 
+  // モーダル管理
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [isRetireModalOpen, setIsRetireModalOpen] = useState(false); // 退職日選択用
   
   const [editingCard, setEditingCard] = useState<any>(null);
   const [editingStaff, setEditingStaff] = useState<any>(null);
   
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
+  const [retirementDate, setRetirementDate] = useState(new Date().toISOString().split('T')[0]); // 退職日
   
   const [editForm, setEditForm] = useState({ staff_id: "", work_date: "", clock_in_time: "", clock_out_time: "", break_mins: "0" });
   const [staffForm, setStaffForm] = useState({ staff_id: "", name: "", password: "", role: "staff", address: "", birth_date: "", hire_date: "", resignation_date: "", is_active: true });
@@ -239,7 +242,7 @@ export default function DashboardPage() {
     }
     let cid = editingCard?.id;
     if (editingCard) await supabase.from('timecards').update({ clock_in_at: cIn, clock_out_at: cOut, work_date: editForm.work_date }).eq('id', cid);
-    else { const res = await supabase.from('timecards').insert({ staff_id: editForm.staff_id, staff_name: activeStaffList.find(x => x.id === editForm.staff_id)?.name || "Unknown", clock_in_at: cIn, clock_out_at: cOut, work_date: editForm.work_date }).select(); cid = res.data?.[0]?.id; }
+    else { const res = await supabase.from('timecards').insert({ staff_id: editForm.staff_id, staff_name: adminStaffList.find(x => x.id === editForm.staff_id)?.name, clock_in_at: cIn, clock_out_at: cOut, work_date: editForm.work_date }).select(); cid = res.data?.[0]?.id; }
     if (cid) {
       await supabase.from('breaks').delete().eq('timecard_id', cid);
       if (parseInt(editForm.break_mins) > 0) {
@@ -257,17 +260,16 @@ export default function DashboardPage() {
   };
 
   const handleSaveStaff = async () => {
-    // 重複チェック
+    if (!staffForm.staff_id || !staffForm.name) { alert("IDと名前は必須です"); return; }
     const duplicateId = adminStaffList.find((s: any) => s.staff_id === staffForm.staff_id && s.id !== editingStaff?.id);
-    const duplicateName = adminStaffList.find((s: any) => s.name === staffForm.name && s.id !== editingStaff?.id);
-    if (duplicateId) { alert("IDが重複しています。別のIDを設定してください。"); return; }
-    if (duplicateName) { if (!confirm(`「${staffForm.name}」さんは既に登録されています。\n同姓同名の別人として登録しますか？`)) return; }
+    if (duplicateId) { alert("IDが重複しています。"); return; }
 
     setLoading(true);
     const payload = {
         staff_id: staffForm.staff_id, name: staffForm.name, role: staffForm.role,
         address: staffForm.address, birth_date: staffForm.birth_date || null,
-        hire_date: staffForm.hire_date || null, resignation_date: staffForm.resignation_date || null,
+        hire_date: staffForm.hire_date || null,
+        resignation_date: staffForm.resignation_date || null, // 退職日も更新対象へ
         is_active: staffForm.is_active
     };
     if (!editingStaff) { Object.assign(payload, { password: staffForm.password || "1234", is_initial_password: true, is_active: true }); }
@@ -279,16 +281,27 @@ export default function DashboardPage() {
     setIsStaffModalOpen(false); fetchStaffList(); setLoading(false);
   };
 
-  const handleDeleteStaff = async (id: string) => {
-    if(!confirm("本当に削除しますか？\n（過去の勤怠データとの整合性が取れなくなる可能性があります）")) return;
-    await supabase.from('staff').delete().eq('id', id); fetchStaffList();
+  // --- 退職処理（モーダル呼び出し） ---
+  const handleClickRetire = (staff: any) => {
+      setEditingStaff(staff);
+      setRetirementDate(new Date().toISOString().split('T')[0]); // 初期値は今日
+      setIsRetireModalOpen(true);
   };
-  const handleRetireStaff = async (id: string) => {
-    if(!confirm("このスタッフを退職済みにしますか？\n（データは残りますが、シフト選択肢から消えます）")) return;
-    const nowJSTISO = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0]; // 退職日をJST日付で
-    await supabase.from('staff').update({ is_active: false, resignation_date: nowJSTISO }).eq('id', id);
-    fetchStaffList();
+
+  // --- 退職実行 ---
+  const executeRetirement = async () => {
+      if(!confirm("退職処理を実行しますか？\n（この操作はシフト選択肢からの除外のみで、過去データは残ります）")) return;
+      setLoading(true);
+      await supabase.from('staff').update({ 
+          is_active: false, 
+          resignation_date: retirementDate 
+      }).eq('id', editingStaff.id);
+      
+      setIsRetireModalOpen(false);
+      fetchStaffList();
+      setLoading(false);
   };
+  
   const handleRestoreStaff = async (id: string) => {
     if(!confirm("このスタッフを在籍中に戻しますか？")) return;
     await supabase.from('staff').update({ is_active: true, resignation_date: null }).eq('id', id);
@@ -377,13 +390,13 @@ export default function DashboardPage() {
             <div className="space-y-6 text-black">
               <div className="app-card text-black">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5 text-black">
-                  <select className="p-3 bg-slate-50 rounded-xl font-bold text-sm border-none text-black" value={filterStaffId} onChange={e => setFilterStaffId(e.target.value)}><option value="all">全員</option>{activeStaffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
+                  <select className="p-3 bg-slate-50 rounded-xl font-bold text-sm border-none text-black" value={filterStaffId} onChange={e => setFilterStaffId(e.target.value)}><option value="all">全員</option>{adminStaffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
                   <input type="date" className="p-3 bg-slate-50 rounded-xl border-none font-bold text-black" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} /><input type="date" className="p-3 bg-slate-50 rounded-xl border-none font-bold text-black" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} />
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-white">
                   <button onClick={generateAdminReport} className="admin-grid-btn bg-[#1a202c] text-white"><Search size={16}/>抽出</button>
                   <button onClick={downloadCSV} className="admin-grid-btn bg-[#75C9D7] text-white"><Download size={16}/>CSV</button>
-                  <button onClick={() => {setEditingCard(null); setEditForm({staff_id: activeStaffList[0]?.id || "", work_date: todayISO, clock_in_time: "09:00", clock_out_time: "18:00", break_mins: "0"}); setIsEditModalOpen(true);}} className="admin-grid-btn bg-orange-400 text-white"><Plus size={16}/>追加</button>
+                  <button onClick={() => {setEditingCard(null); setEditForm({staff_id: adminStaffList[0]?.id || "", work_date: todayISO, clock_in_time: "09:00", clock_out_time: "18:00", break_mins: "0"}); setIsEditModalOpen(true);}} className="admin-grid-btn bg-orange-400 text-white"><Plus size={16}/>追加</button>
                 </div>
               </div>
               {adminReport.map(r => (<div key={r.id} className="app-card flex justify-between items-center border-l-8 border-slate-100 text-black py-4"><div className="flex-1 text-black"><p className="font-black text-sm text-black">{r.staff_name}</p><p className="text-[10px] text-slate-500">{r.work_date} (休憩:{r.break_time})</p><p className="text-xs font-bold text-[#75C9D7]">実働:{r.work_time}</p></div><div className="flex gap-1">
@@ -412,7 +425,7 @@ export default function DashboardPage() {
                         <div className="flex gap-2">
                             <button onClick={() => { setEditingStaff(s); setStaffForm({ ...s, password: "" }); setIsStaffModalOpen(true); }} className="p-3 bg-slate-50 rounded-xl border-none"><Edit size={16}/></button>
                             {s.is_active ? 
-                                <button onClick={() => handleRetireStaff(s.id)} className="p-3 bg-red-50 text-red-400 rounded-xl border-none"><Archive size={16}/></button> :
+                                <button onClick={() => handleClickRetire(s)} className="p-3 bg-red-50 text-red-400 rounded-xl border-none"><Archive size={16}/></button> :
                                 <button onClick={() => handleRestoreStaff(s.id)} className="p-3 bg-blue-50 text-blue-400 rounded-xl border-none"><RefreshCcw size={16}/></button>
                             }
                         </div>
@@ -435,7 +448,7 @@ export default function DashboardPage() {
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl text-black">
             <h3 className="text-lg font-black mb-6 text-center text-black">勤怠修正</h3>
             <div className="space-y-4">
-              <div><label className="text-[10px] font-black text-slate-400 ml-1">スタッフ</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={editForm.staff_id} onChange={e => setEditForm({...editForm, staff_id: e.target.value})} disabled={!!editingCard}>{activeStaffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+              <div><label className="text-[10px] font-black text-slate-400 ml-1">スタッフ</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={editForm.staff_id} onChange={e => setEditForm({...editForm, staff_id: e.target.value})} disabled={!!editingCard}>{adminStaffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
               <div><label className="text-[10px] font-black text-slate-400 ml-1 text-black">日付</label><input type="date" className="w-full p-3 bg-slate-50 rounded-xl border-none text-sm font-bold text-black" value={editForm.work_date} onChange={e => setEditForm({...editForm, work_date: e.target.value})} /></div>
               <div className="flex gap-3 text-black"><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1 text-black">出勤</label><input type="time" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={editForm.clock_in_time} onChange={e => setEditForm({...editForm, clock_in_time: e.target.value})} /></div><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1 text-black">退勤</label><input type="time" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={editForm.clock_out_time} onChange={e => setEditForm({...editForm, clock_out_time: e.target.value})} /></div></div>
               <div><label className="text-[10px] font-black text-slate-400 ml-1 text-black">休憩(分)</label><input type="number" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={editForm.break_mins} onChange={e => setEditForm({...editForm, break_mins: e.target.value})} /></div>
@@ -443,6 +456,23 @@ export default function DashboardPage() {
             <div className="flex gap-3 mt-8 text-black">
               <button onClick={() => setIsEditModalOpen(false)} className="flex-1 py-3 bg-slate-100 text-slate-500 font-black rounded-xl border-none">中止</button>
               <button onClick={handleSaveRecord} className="flex-1 py-3 bg-[#75C9D7] text-white font-black rounded-xl shadow-lg border-none flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>}保存</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 退職日選択モーダル（新設） */}
+      {isRetireModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 backdrop-blur-sm text-black">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl text-black">
+            <h3 className="text-lg font-black mb-2 text-center text-red-500">退職処理</h3>
+            <p className="text-xs text-center font-bold text-slate-400 mb-6">{editingStaff?.name} さんの退職日を選択してください</p>
+            <div className="space-y-4">
+              <div><label className="text-[10px] font-black text-slate-400 ml-1">退職日</label><input type="date" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={retirementDate} onChange={e => setRetirementDate(e.target.value)} /></div>
+            </div>
+            <div className="flex gap-3 mt-8 text-black">
+              <button onClick={() => setIsRetireModalOpen(false)} className="flex-1 py-3 bg-slate-100 text-slate-500 font-black rounded-xl border-none">中止</button>
+              <button onClick={executeRetirement} className="flex-1 py-3 bg-red-500 text-white font-black rounded-xl shadow-lg border-none flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin" size={16}/> : <Archive size={16}/>}退職確定</button>
             </div>
           </div>
         </div>
@@ -463,7 +493,8 @@ export default function DashboardPage() {
                    <div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">生年月日</label><input type="date" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={staffForm.birth_date} onChange={e=>setStaffForm({...staffForm, birth_date: e.target.value})} /></div>
                    <div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">入社日</label><input type="date" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={staffForm.hire_date} onChange={e=>setStaffForm({...staffForm, hire_date: e.target.value})} /></div>
                </div>
-               <div><label className="text-[10px] font-black text-slate-400 ml-1">退職日 (退職済みの場合のみ)</label><input type="date" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={staffForm.resignation_date} onChange={e=>setStaffForm({...staffForm, resignation_date: e.target.value})} /></div>
+               {/* 修正ポイント：新規採用画面では退職日は表示しない */}
+               {/* 修正ポイント：編集画面でも退職日は表示せず、リスト上のボタンで処理する */}
                {!editingStaff && <div><label className="text-[10px] font-black text-slate-400 ml-1">初期パスワード</label><input className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={staffForm.password} onChange={e=>setStaffForm({...staffForm, password: e.target.value})} placeholder="1234" /></div>}
             </div>
             <div className="flex gap-3 mt-8 text-black">
