@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback, useMemo, memo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   Clock, CheckCircle2, Camera, X, Loader2, Coffee, ArrowLeft, 
-  Download, Search, Menu, Edit, Trash2, Plus, Save, PauseCircle, UserCheck, AlertTriangle, Archive, RefreshCcw
+  Download, Search, Menu, Edit, Trash2, Plus, Save, PauseCircle, UserCheck, AlertTriangle, Archive, RefreshCcw, Ban
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -30,23 +30,19 @@ export default function DashboardPage() {
   const [adminStaffList, setAdminStaffList] = useState<any[]>([]);
   const [activeStaffList, setActiveStaffList] = useState<any[]>([]);
   const [adminReport, setAdminReport] = useState<any[]>([]);
-  
   const [filterStaffId, setFilterStaffId] = useState("all");
   const [filterStartDate, setFilterStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [filterEndDate, setFilterEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [monitorDate, setMonitorDate] = useState(new Date().toISOString().split('T')[0]);
-  
   const [showRetiredStaff, setShowRetiredStaff] = useState(false);
 
-  // モーダル管理
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
-  const [isRetireModalOpen, setIsRetireModalOpen] = useState(false); 
+  const [isRetireModalOpen, setIsRetireModalOpen] = useState(false);
   
   const [editingCard, setEditingCard] = useState<any>(null);
   const [editingStaff, setEditingStaff] = useState<any>(null);
-  
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   const [retirementDate, setRetirementDate] = useState(new Date().toISOString().split('T')[0]);
@@ -55,11 +51,7 @@ export default function DashboardPage() {
   const [staffForm, setStaffForm] = useState({ staff_id: "", name: "", password: "", role: "staff", address: "", birth_date: "", hire_date: "", resignation_date: "", is_active: true });
 
   const formatToJSTTime = (s: string | null) => s ? new Date(s).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) : "---";
-  const isoToTime = (s: string | null) => {
-    if (!s) return "";
-    const d = new Date(s);
-    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  };
+  const isoToTime = (s: string | null) => s ? `${String(new Date(s).getHours()).padStart(2,'0')}:${String(new Date(s).getMinutes()).padStart(2,'0')}` : "";
   const formatHHMM = (m: number) => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
   const minDateLimit = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().split('T')[0]; }, []);
   const todayISO = useMemo(() => new Date().toISOString().split('T')[0], []);
@@ -291,12 +283,21 @@ export default function DashboardPage() {
   const executeRetirement = async () => {
       if(!confirm("退職処理を実行しますか？\n（この操作はシフト選択肢からの除外のみで、過去データは残ります）")) return;
       setLoading(true);
-      await supabase.from('staff').update({ 
-          is_active: false, 
-          resignation_date: retirementDate 
-      }).eq('id', editingStaff.id);
-      
+      await supabase.from('staff').update({ is_active: false, resignation_date: retirementDate }).eq('id', editingStaff.id);
       setIsRetireModalOpen(false); fetchStaffList(); setLoading(false);
+  };
+  
+  // --- 【完全削除】物理削除の実行関数 ---
+  const handlePhysicalDeleteStaff = async (id: string) => {
+    if(!confirm("【警告】本当に完全に消去しますか？\n\n・このスタッフの全勤怠データ\n・全タスク実施記録\n・登録情報\n\nこれら全てがデータベースから消滅し、二度と復元できません。")) return;
+    setLoading(true);
+    // 関連データを先に消す（FK制約回避）
+    await supabase.from('breaks').delete().eq('staff_id', id);
+    await supabase.from('timecards').delete().eq('staff_id', id);
+    await supabase.from('task_logs').delete().eq('staff_id', id);
+    // 最後にスタッフを消す
+    await supabase.from('staff').delete().eq('id', id);
+    fetchStaffList(); setLoading(false);
   };
   
   const handleRestoreStaff = async (id: string) => {
@@ -319,8 +320,6 @@ export default function DashboardPage() {
         .menu-item-active { background-color: #75C9D7 !important; color: white !important; border: none; }
         .menu-item-active span { color: white !important; }
         .admin-grid-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px 2px; font-size: 11px; font-weight: 900; border-radius: 12px; border: none; color: white !important; cursor: pointer; }
-        
-        /* 改善: カード全体をクリック可能にするスタイル */
         .staff-card { transition: all 0.2s; cursor: pointer; }
         .staff-card:hover { background-color: #f8fafc; transform: translateY(-2px); }
         .staff-card:active { transform: translateY(0); }
@@ -408,7 +407,6 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* --- 【修正】スタッフ管理(Admin)：カード全体クリック対応 --- */}
           {menuChoice === "👥 スタッフ管理(Admin)" && (
             <div className="space-y-6 text-black">
                 <div className="app-card flex justify-between items-center">
@@ -419,7 +417,6 @@ export default function DashboardPage() {
                     </div>
                 </div>
                 {displayStaffList.map(s => (
-                    // 修正：div全体をonClickにし、クリック感を付与
                     <div 
                         key={s.id} 
                         className={`app-card staff-card flex justify-between items-center border-l-8 ${s.is_active ? 'border-slate-100' : 'border-slate-300 bg-slate-50'}`}
@@ -431,10 +428,9 @@ export default function DashboardPage() {
                             {s.address && <p className="text-[10px] text-slate-400 mt-1">{s.address}</p>}
                         </div>
                         <div className="flex gap-2">
-                            {/* 編集ボタンは削除し、削除ボタンのみ配置。stopPropagationでイベント伝播を阻止 */}
                             {s.is_active ? 
                                 <button onClick={(e) => { e.stopPropagation(); handleClickRetire(s); }} className="p-3 bg-red-50 text-red-400 rounded-xl border-none"><Archive size={16}/></button> :
-                                <button onClick={(e) => { e.stopPropagation(); handleRestoreStaff(s.id); }} className="p-3 bg-blue-50 text-blue-400 rounded-xl border-none"><RefreshCcw size={16}/></button>
+                                <button onClick={(e) => { e.stopPropagation(); handlePhysicalDeleteStaff(s.id); }} className="p-3 bg-slate-200 text-slate-500 rounded-xl border-none"><Ban size={16}/></button>
                             }
                         </div>
                     </div>
