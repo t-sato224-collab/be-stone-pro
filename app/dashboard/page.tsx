@@ -13,6 +13,7 @@ const QrScanner = memo(QrScannerRaw);
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export default function DashboardPage() {
+  // --- 1. 状態管理 ---
   const [staff, setStaff] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [adminTasks, setAdminTasks] = useState<any[]>([]);
@@ -35,9 +36,9 @@ export default function DashboardPage() {
   const [monitorDate, setMonitorDate] = useState(new Date().toISOString().split('T')[0]);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false); // スタッフ管理モーダル
   const [editingCard, setEditingCard] = useState<any>(null);
-  const [editingStaff, setEditingStaff] = useState<any>(null);
+  const [editingStaff, setEditingStaff] = useState<any>(null); // スタッフ編集用
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   const [editForm, setEditForm] = useState({ staff_id: "", work_date: "", clock_in_time: "", clock_out_time: "", break_mins: "0" });
@@ -69,17 +70,17 @@ export default function DashboardPage() {
 
   // --- 3. データ同期 ---
   const fetchTasks = useCallback(async () => {
-    const todayStr = new Date().toLocaleDateString('sv-SE');
-    const todayDay = new Date().getDay();
+    const today = new Date().toLocaleDateString('sv-SE');
+    const day = new Date().getDay();
     const [mRes, lRes] = await Promise.all([
-      supabase.from('task_master').select('*').or(`day_of_week.eq.${todayDay},day_of_week.is.null`),
-      supabase.from('task_logs').select('*, task_master(*, locations(*)), staff(name)').eq('work_date', todayStr)
+      supabase.from('task_master').select('*').or(`day_of_week.eq.${day},day_of_week.is.null`),
+      supabase.from('task_logs').select('*, task_master(*, locations(*)), staff(name)').eq('work_date', today)
     ]);
     const masters = mRes.data || []; const logs = lRes.data || [];
     const missing = masters.filter(m => !logs.some(l => l.task_id === m.id));
     if (missing.length > 0) {
-      await supabase.from('task_logs').insert(missing.map(m => ({ task_id: m.id, work_date: todayStr, status: 'pending' })));
-      const { data: r } = await supabase.from('task_logs').select('*, task_master(*, locations(*)), staff(name)').eq('work_date', todayStr);
+      await supabase.from('task_logs').insert(missing.map(m => ({ task_id: m.id, work_date: today, status: 'pending' })));
+      const { data: r } = await supabase.from('task_logs').select('*, task_master(*, locations(*)), staff(name)').eq('work_date', today);
       setTasks(r || []);
     } else { setTasks(logs); }
   }, []);
@@ -112,7 +113,6 @@ export default function DashboardPage() {
   useEffect(() => {
     const id = localStorage.getItem('staff_id'); if (!id) { window.location.href = '/'; return; }
     const init = async () => {
-      const page = localStorage.getItem('active_page') || "📋 本日の業務"; setMenuChoice(page);
       const { data: s } = await supabase.from('staff').select('*').eq('staff_id', id).single();
       if (s) {
         setStaff(s); syncStatus(s.id); 
@@ -140,6 +140,7 @@ export default function DashboardPage() {
   const handleClockAction = async (type: 'in' | 'out' | 'break') => {
     setLoading(true);
     const nowJST = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().replace('Z', '+09:00');
+    
     if (type === 'in') await supabase.from('timecards').insert({ staff_id: staff.id, staff_name: staff.name, clock_in_at: nowJST, work_date: todayISO });
     if (type === 'out') { if(!confirm("退勤を記録しますか？")) { setLoading(false); return; } await supabase.from('timecards').update({ clock_out_at: nowJST }).eq('staff_id', staff.id).is('clock_out_at', null); }
     if (type === 'break') {
@@ -150,6 +151,7 @@ export default function DashboardPage() {
   };
 
   const handleTaskAction = (t: any) => { setActiveTask(t); setIsQrVerified(t.status === 'started'); };
+
   const onQrScan = useCallback(async (txt: string) => {
     if (activeTask && txt === activeTask.task_master?.locations?.qr_token) {
       const nowJST = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().replace('Z', '+09:00');
@@ -201,9 +203,24 @@ export default function DashboardPage() {
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\uFEFF" + h + r])); link.download = `Attendance.csv`; link.click();
   };
 
+  // --- 【新機能】スタッフ台帳のCSV出力 ---
+  const downloadStaffCSV = () => {
+    const headers = "ID,名前,権限,住所,生年月日,入社日,退社日\n";
+    const rows = adminStaffList.map((s: any) => 
+        `${s.staff_id},${s.name},${s.role},${s.address || ""},${s.birth_date || ""},${s.hire_date || ""},${s.resignation_date || ""}`
+    ).join("\n");
+    const link = document.createElement("a"); 
+    link.href = URL.createObjectURL(new Blob(["\uFEFF" + headers + rows], { type: 'text/csv;charset=utf-8;' })); 
+    link.download = `Staff_List.csv`; link.click();
+  };
+
   const handleEditClick = (record: any) => {
     setEditingCard(record);
-    setEditForm({ staff_id: record.staff_id, work_date: record.work_date, clock_in_time: isoToTime(record.clock_in_at), clock_out_time: isoToTime(record.clock_out_at), break_mins: String(calculateTotalBreak(record.breaks)) });
+    const bMins = record.breaks?.reduce((acc: number, b: any) => {
+        const diff = (b.break_start_at && b.break_end_at) ? Math.round((new Date(b.break_end_at).getTime() - new Date(b.break_start_at).getTime())/60000) : 0;
+        return acc + Math.max(0, diff);
+    }, 0);
+    setEditForm({ staff_id: record.staff_id, work_date: record.work_date, clock_in_time: isoToTime(record.clock_in_at), clock_out_time: isoToTime(record.clock_out_at), break_mins: String(bMins || 0) });
     setIsEditModalOpen(true);
   };
 
@@ -217,14 +234,14 @@ export default function DashboardPage() {
             cOut = `${nextDay}T${editForm.clock_out_time}:00+09:00`;
         } else { cOut = `${editForm.work_date}T${editForm.clock_out_time}:00+09:00`; }
     }
-    let cardId = editingCard?.id;
-    if (editingCard) await supabase.from('timecards').update({ clock_in_at: cIn, clock_out_at: cOut, work_date: editForm.work_date }).eq('id', cardId);
-    else { const res = await supabase.from('timecards').insert({ staff_id: editForm.staff_id, staff_name: adminStaffList.find(x => x.id === editForm.staff_id)?.name, clock_in_at: cIn, clock_out_at: cOut, work_date: editForm.work_date }).select(); cardId = res.data?.[0]?.id; }
-    if (cardId) {
-      await supabase.from('breaks').delete().eq('timecard_id', cardId);
+    let cid = editingCard?.id;
+    if (editingCard) await supabase.from('timecards').update({ clock_in_at: cIn, clock_out_at: cOut, work_date: editForm.work_date }).eq('id', cid);
+    else { const res = await supabase.from('timecards').insert({ staff_id: editForm.staff_id, staff_name: adminStaffList.find(x => x.id === editForm.staff_id)?.name, clock_in_at: cIn, clock_out_at: cOut, work_date: editForm.work_date }).select(); cid = res.data?.[0]?.id; }
+    if (cid) {
+      await supabase.from('breaks').delete().eq('timecard_id', cid);
       if (parseInt(editForm.break_mins) > 0) {
         const bE = new Date(new Date(cIn).getTime() + parseInt(editForm.break_mins) * 60000).toISOString().replace('Z', '+09:00');
-        await supabase.from('breaks').insert({ staff_id: editingCard?.staff_id || editForm.staff_id, timecard_id: cardId, break_start_at: cIn, break_end_at: bE, work_date: editForm.work_date });
+        await supabase.from('breaks').insert({ staff_id: editingCard?.staff_id || editForm.staff_id, timecard_id: cid, break_start_at: cIn, break_end_at: bE, work_date: editForm.work_date });
       }
     }
     setIsEditModalOpen(false); await generateAdminReport(); setLoading(false);
@@ -236,27 +253,26 @@ export default function DashboardPage() {
     setIsDeleteModalOpen(false); await generateAdminReport(); setLoading(false);
   };
 
-  // --- 【完全修復】スタッフ保存関数 ---
+  // --- 6. スタッフ管理機能（人事） ---
   const handleSaveStaff = async () => {
     setLoading(true);
-    const commonData = {
+    const payload = {
         staff_id: staffForm.staff_id, name: staffForm.name, role: staffForm.role,
         address: staffForm.address, birth_date: staffForm.birth_date || null,
         hire_date: staffForm.hire_date || null, resignation_date: staffForm.resignation_date || null
     };
-    if (editingStaff) {
-        await supabase.from('staff').update(commonData).eq('id', editingStaff.id);
-    } else {
-        await supabase.from('staff').insert({
-            ...commonData,
-            password: staffForm.password || "1234", is_initial_password: true
-        });
-    }
+    // パスワードは入力がある場合または新規の場合のみ送信
+    if (!editingStaff) { Object.assign(payload, { password: staffForm.password || "1234", is_initial_password: true }); }
+    else if (staffForm.password) { Object.assign(payload, { password: staffForm.password, is_initial_password: true }); }
+
+    if (editingStaff) await supabase.from('staff').update(payload).eq('id', editingStaff.id);
+    else await supabase.from('staff').insert(payload);
+    
     setIsStaffModalOpen(false); fetchStaffList(); setLoading(false);
   };
 
   const handleDeleteStaff = async (id: string) => {
-    if(!confirm("本当に削除しますか？")) return;
+    if(!confirm("本当に削除しますか？\n過去の勤怠データとの整合性が取れなくなる可能性があります。")) return;
     await supabase.from('staff').delete().eq('id', id); fetchStaffList();
   };
 
@@ -297,8 +313,8 @@ export default function DashboardPage() {
               <div className="app-card border-l-8 border-[#75C9D7] text-center">
                 {attendanceStatus === 'offline' ? <button onClick={() => handleClockAction('in')} className="w-full py-5 bg-[#75C9D7] text-white font-black rounded-2xl text-xl border-none shadow-lg">🚀 業務開始 (出勤)</button> : <>
                     <div className="flex gap-3 mb-4"><button onClick={() => handleClockAction('break')} className={`flex-1 py-4 border-none ${attendanceStatus === 'break' ? 'bg-orange-400' : 'bg-[#1a202c]'} text-white font-black rounded-2xl`}>{attendanceStatus === 'break' ? '🏃 業務復帰' : '☕ 休憩入り'}</button><button onClick={() => handleClockAction('out')} className="flex-1 py-4 bg-white border border-slate-200 text-slate-400 font-black rounded-2xl">退勤</button></div>
-                    <p className="text-sm font-bold text-slate-400">出勤：{formatToJSTTime(currCard?.clock_in_at)}</p>
-                    <p className="text-lg font-black mt-1" style={{color: tInfo.col}}>{tInfo.label}：{tInfo.val}</p>
+                    <p className="text-sm font-bold text-slate-400 text-center">出勤：{formatToJSTTime(currCard?.clock_in_at)}</p>
+                    <p className="text-lg font-black mt-1 text-center" style={{color: tInfo.col}}>{tInfo.label}：{tInfo.val}</p>
                 </>}
               </div>
               {attendanceStatus !== 'offline' && displayTasks.map(t => (
@@ -357,10 +373,12 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* --- 【新設】スタッフ管理(Admin) --- */}
           {menuChoice === "👥 スタッフ管理(Admin)" && (
             <div className="space-y-6 text-black">
                 <div className="app-card text-right">
                     <button onClick={() => { setEditingStaff(null); setStaffForm({ staff_id: "", name: "", password: "", role: "staff", address: "", birth_date: "", hire_date: "", resignation_date: "" }); setIsStaffModalOpen(true); }} className="px-6 py-4 bg-orange-400 text-white font-black rounded-2xl shadow-lg border-none"><Plus size={16} className="inline mr-2"/>新規スタッフ</button>
+                    <button onClick={async()=>{ const h="ID,名前,権限,住所,生年月日,入社日,退社日\n"; const r=adminStaffList.map(s=>`${s.staff_id},${s.name},${s.role},${s.address||""},${s.birth_date||""},${s.hire_date||""},${s.resignation_date||""}`).join("\n"); const l=document.createElement("a"); l.href=URL.createObjectURL(new Blob(["\uFEFF"+h+r],{type:'text/csv;charset=utf-8;'})); l.download=`Staff_List.csv`; l.click(); }} className="ml-2 px-6 py-4 bg-[#75C9D7] text-white font-black rounded-2xl shadow-lg border-none"><Download size={16} className="inline mr-2"/>台帳CSV</button>
                 </div>
                 {adminStaffList.map(s => (
                     <div key={s.id} className="app-card flex justify-between items-center border-l-8 border-slate-100">
@@ -398,9 +416,19 @@ export default function DashboardPage() {
               <div><label className="text-[10px] font-black text-slate-400 ml-1 text-black">休憩(分)</label><input type="number" className="w-full p-3 bg-slate-50 rounded-xl border-none font-bold text-sm text-black" value={editForm.break_mins} onChange={e => setEditForm({...editForm, break_mins: e.target.value})} /></div>
             </div>
             <div className="flex gap-3 mt-8 text-black">
-              <button onClick={() => setIsEditModalOpen(false)} className="flex-1 py-3 bg-slate-100 text-slate-500 font-black rounded-xl border-none">中止</button>
+              <button onClick={() => setIsEditModalOpen(false)} className="flex-1 py-3 bg-slate-50 text-slate-400 font-black rounded-xl border-none">中止</button>
               <button onClick={handleSaveRecord} className="flex-1 py-3 bg-[#75C9D7] text-white font-black rounded-xl shadow-lg border-none flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>}保存</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl text-black">
+            <div className="text-center text-black"><AlertTriangle size={48} className="text-red-500 mb-4 mx-auto" /><h3 className="text-xl font-black mb-6 text-red-600">削除確認</h3></div>
+            <textarea className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm mb-6 text-black" rows={3} placeholder="削除理由を入力..." value={deleteReason} onChange={(e)=>setDeleteReason(e.target.value)} />
+            <div className="flex gap-3"><button onClick={()=>setIsDeleteModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 font-black rounded-2xl border-none">中止</button><button onClick={handleConfirmDelete} className="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl border-none">実行</button></div>
           </div>
         </div>
       )}
@@ -426,16 +454,6 @@ export default function DashboardPage() {
               <button onClick={() => setIsStaffModalOpen(false)} className="flex-1 py-3 bg-slate-100 text-slate-500 font-black rounded-xl border-none">中止</button>
               <button onClick={handleSaveStaff} className="flex-1 py-3 bg-[#75C9D7] text-white font-black rounded-xl shadow-lg border-none flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>}保存</button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {isDeleteModalOpen && (
-        <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 backdrop-blur-md">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl text-black">
-            <div className="text-center text-black"><AlertTriangle size={48} className="text-red-500 mb-4 mx-auto" /><h3 className="text-xl font-black mb-6 text-red-600">削除確認</h3></div>
-            <textarea className="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-sm mb-6 text-black" rows={3} placeholder="削除理由を入力..." value={deleteReason} onChange={(e)=>setDeleteReason(e.target.value)} />
-            <div className="flex gap-3"><button onClick={()=>setIsDeleteModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 font-black rounded-2xl border-none">中止</button><button onClick={handleConfirmDelete} className="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl border-none">実行</button></div>
           </div>
         </div>
       )}
