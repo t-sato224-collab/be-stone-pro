@@ -287,15 +287,12 @@ export default function DashboardPage() {
       setIsRetireModalOpen(false); fetchStaffList(); setLoading(false);
   };
   
-  // --- 【完全削除】物理削除の実行関数 ---
   const handlePhysicalDeleteStaff = async (id: string) => {
     if(!confirm("【警告】本当に完全に消去しますか？\n\n・このスタッフの全勤怠データ\n・全タスク実施記録\n・登録情報\n\nこれら全てがデータベースから消滅し、二度と復元できません。")) return;
     setLoading(true);
-    // 関連データを先に消す（FK制約回避）
     await supabase.from('breaks').delete().eq('staff_id', id);
     await supabase.from('timecards').delete().eq('staff_id', id);
     await supabase.from('task_logs').delete().eq('staff_id', id);
-    // 最後にスタッフを消す
     await supabase.from('staff').delete().eq('id', id);
     fetchStaffList(); setLoading(false);
   };
@@ -430,7 +427,10 @@ export default function DashboardPage() {
                         <div className="flex gap-2">
                             {s.is_active ? 
                                 <button onClick={(e) => { e.stopPropagation(); handleClickRetire(s); }} className="p-3 bg-red-50 text-red-400 rounded-xl border-none"><Archive size={16}/></button> :
-                                <button onClick={(e) => { e.stopPropagation(); handlePhysicalDeleteStaff(s.id); }} className="p-3 bg-slate-200 text-slate-500 rounded-xl border-none"><Ban size={16}/></button>
+                                <>
+                                  <button onClick={(e) => { e.stopPropagation(); handleRestoreStaff(s.id); }} className="p-3 bg-blue-50 text-blue-400 rounded-xl border-none" title="在籍に戻す"><RefreshCcw size={16}/></button>
+                                  <button onClick={(e) => { e.stopPropagation(); handlePhysicalDeleteStaff(s.id); }} className="p-3 bg-slate-200 text-slate-500 rounded-xl border-none" title="完全に消去"><Ban size={16}/></button>
+                                </>
                             }
                         </div>
                     </div>
