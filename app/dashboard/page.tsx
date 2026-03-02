@@ -32,13 +32,12 @@ export default function DashboardPage() {
   const [adminReport, setAdminReport] = useState<any[]>([]);
   const [monitorDate, setMonitorDate] = useState(new Date().toISOString().split('T')[0]);
   
-  // フィルタ用初期値
+  // フィルタ用
   const [filterStaffId, setFilterStaffId] = useState("all");
   const [filterStartDate, setFilterStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
   const [filterEndDate, setFilterEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [staffListMode, setStaffListMode] = useState<'active' | 'resigned'>('active');
 
-  // モーダル
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
@@ -52,24 +51,24 @@ export default function DashboardPage() {
   const [editForm, setEditForm] = useState({ staff_id: "", work_date: "", clock_in_time: "", clock_out_time: "", break_mins: "0" });
   const [staffForm, setStaffForm] = useState({ staff_id: "", name: "", role: "staff", password: "1234", address: "", birthday: "", hire_date: "", resignation_date: "" });
 
-  // --- 2. ユーティリティ関数（定義順序エラー回避のため、ロジックより先に記述） ---
+  // --- 2. ユーティリティ (最優先で定義) ---
 
-  // 休憩時間の合計（分）を計算
+  // 休憩合計計算
   const calculateTotalBreak = useCallback((brks: any[], includeActive: boolean = false) => {
-    let t = 0; 
-    brks?.forEach(b => { 
+    let t = 0;
+    brks?.forEach(b => {
       if (b.break_start_at && b.break_end_at) {
-        t += Math.round((new Date(b.break_end_at).getTime() - new Date(b.break_start_at).getTime()) / 60000); 
+        t += Math.round((new Date(b.break_end_at).getTime() - new Date(b.break_start_at).getTime()) / 60000);
       }
     });
-    if (includeActive) { 
-      const a = brks?.find(b => !b.break_end_at); 
-      if (a) t += Math.round((currentTime.getTime() - new Date(a.break_start_at).getTime()) / 60000); 
+    if (includeActive) {
+      const a = brks?.find(b => !b.break_end_at);
+      if (a) t += Math.round((currentTime.getTime() - new Date(a.break_start_at).getTime()) / 60000);
     }
     return t;
   }, [currentTime]);
 
-  // 実働時間（分）を計算
+  // 実働計算
   const calculateWorkMins = useCallback((cIn: string, cOut: string | null, brks: any[]) => {
     if (!cIn) return 0;
     const end = cOut ? new Date(cOut) : currentTime;
@@ -83,13 +82,9 @@ export default function DashboardPage() {
   const todayISO = useMemo(() => new Date().toISOString().split('T')[0], []);
   const minDateLimit = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().split('T')[0]; }, []);
 
-  // 在籍スタッフ一覧
-  const activeStaffList = useMemo(() => 
-    adminStaffList.filter((s: any) => !s.resignation_date), 
-    [adminStaffList]
-  );
+  const activeStaffList = useMemo(() => adminStaffList.filter((s: any) => !s.resignation_date), [adminStaffList]);
 
-  // --- 3. データ同期処理 ---
+  // --- 3. データ取得・同期 ---
 
   const fetchTasks = useCallback(async () => {
     const todayStr = new Date().toLocaleDateString('sv-SE');
@@ -126,29 +121,16 @@ export default function DashboardPage() {
       const { data: brs } = await supabase.from('breaks').select('*').eq('timecard_id', tc.id);
       setBreaksList(brs || []); 
       setAttendanceStatus(brs?.find((b: any) => !b.break_end_at) ? 'break' : 'working');
-    } else { 
-      setCurrCard(null); 
-      setBreaksList([]); 
-      setAttendanceStatus('offline'); 
-    }
+    } else { setCurrCard(null); setBreaksList([]); setAttendanceStatus('offline'); }
     fetchTasks();
-    // 個人履歴の取得
-    const start = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-    const { data: h } = await supabase.from('timecards').select('*, breaks(*)').eq('staff_id', staffId).gte('work_date', start).order('work_date', { ascending: false });
-    if (h) setPersonalHistory(h.map((r: any) => ({ ...r, work_time: formatHHMM(calculateWorkMins(r.clock_in_at, r.clock_out_at, r.breaks)), break_time: formatHHMM(calculateTotalBreak(r.breaks)) })));
-  }, [fetchTasks, calculateWorkMins, calculateTotalBreak]);
+  }, [fetchTasks]);
 
   useEffect(() => {
     const id = localStorage.getItem('staff_id'); if (!id) { window.location.href = '/'; return; }
     const init = async () => {
       const page = localStorage.getItem('active_page') || "📋 本日の業務"; setMenuChoice(page);
       const { data: s } = await supabase.from('staff').select('*').eq('staff_id', id).single();
-      if (s) { 
-        setStaff(s); 
-        syncStatus(s.id); 
-        fetchAdminStaffList(); 
-        if (page.includes("監視")) fetchAdminMonitor(monitorDate); 
-      }
+      if (s) { setStaff(s); syncStatus(s.id); fetchAdminStaffList(); if (page.includes("監視")) fetchAdminMonitor(monitorDate); }
       else { localStorage.clear(); window.location.href = '/'; }
     };
     init();
@@ -158,7 +140,64 @@ export default function DashboardPage() {
     return () => { clearInterval(timer); window.removeEventListener('resize', resizer); };
   }, [syncStatus, fetchAdminStaffList, fetchAdminMonitor, monitorDate]);
 
-  // --- 4. アクションハンドラ ---
+  // --- 4. CSV出力 (最重要: 全日付ループ) ---
+
+  const downloadAttendanceCSV = () => {
+    if (adminReport.length === 0) {
+      alert("データが表示されていません。先に「抽出」ボタンを押してください。");
+      return;
+    }
+
+    // 1. カレンダーで選択された期間を1日ずつ配列にする
+    const start = new Date(filterStartDate + "T00:00:00");
+    const end = new Date(filterEndDate + "T00:00:00");
+    const dateArray: string[] = [];
+    let loopDate = new Date(start);
+    while (loopDate <= end) {
+      dateArray.push(loopDate.toISOString().split('T')[0]); // YYYY-MM-DD
+      loopDate.setDate(loopDate.getDate() + 1);
+    }
+
+    // 2. 出力するスタッフを決める
+    const targetStaffs = filterStaffId === "all" ? activeStaffList : adminStaffList.filter(s => s.id === filterStaffId);
+
+    // 3. CSV作成 (BOM付きでExcelの文字化け防止)
+    let csv = "\uFEFF名前,日付,出勤,退勤,休憩,実働\n";
+
+    targetStaffs.forEach((st: any) => {
+      dateArray.forEach(dateStr => {
+        // adminReportの中から「スタッフID」と「日付」が一致するものを探す
+        const record = adminReport.find(r => r.staff_id === st.id && r.work_date === dateStr);
+        const displayDate = dateStr.replace(/-/g, '/'); // 2026/01/01 形式
+        
+        if (record) {
+          csv += `"${st.name}","${displayDate}","${formatToJSTTime(record.clock_in_at)}","${formatToJSTTime(record.clock_out_at)}","${record.break_time}","${record.work_time}"\n`;
+        } else {
+          // データがない日も名前と日付だけ出して、あとは空欄
+          csv += `"${st.name}","${displayDate}","","","",""\n`;
+        }
+      });
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `Attendance_${filterStartDate}_to_${filterEndDate}.csv`;
+    link.click();
+  };
+
+  const downloadStaffCSV = () => {
+    const header = "ID,名前,権限,住所,生年月日,入社日,退社日,在籍状況\n";
+    const rows = adminStaffList.map((s: any) => {
+      const safeName = s.name?.replace(/\r?\n/g, ' ') || "";
+      const safeAddress = s.address?.replace(/\r?\n/g, ' ') || "";
+      return `"${s.staff_id}","${safeName}","${s.role}","${safeAddress}","${s.birthday||""}","${s.hire_date||""}","${s.resignation_date||""}","${s.resignation_date ? '退職' : '在籍'}"`;
+    }).join("\n");
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), header + rows], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `StaffList.csv`; link.click();
+  };
+
+  // --- 5. 管理機能ハンドラ ---
 
   const handleClockAction = async (type: 'in' | 'out' | 'break') => {
     setLoading(true);
@@ -188,21 +227,10 @@ export default function DashboardPage() {
   };
 
   const handlePermanentDeleteStaff = async (id: string) => {
-    if(!confirm("スタッフの全データを完全に削除します。元に戻せませんがよろしいですか？")) return;
+    if(!confirm("削除します。よろしいですか？")) return;
     setLoading(true);
     await supabase.from('staff').delete().eq('id', id);
     await fetchAdminStaffList(); setLoading(false);
-  };
-
-  const downloadStaffCSV = () => {
-    const header = "ID,名前,権限,住所,生年月日,入社日,退社日,在籍状況\n";
-    const rows = adminStaffList.map((s: any) => {
-      const safeName = s.name?.replace(/\r?\n/g, ' ') || "";
-      const safeAddress = s.address?.replace(/\r?\n/g, ' ') || "";
-      return `"${s.staff_id}","${safeName}","${s.role}","${safeAddress}","${s.birthday||""}","${s.hire_date||""}","${s.resignation_date||""}","${s.resignation_date ? '退職' : '在籍'}"`;
-    }).join("\n");
-    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), header + rows], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `StaffList.csv`; link.click();
   };
 
   const generateAdminReport = async () => {
@@ -212,49 +240,6 @@ export default function DashboardPage() {
     const { data } = await q.order('work_date', { ascending: true });
     if (data) setAdminReport(data.map((r: any) => ({ ...r, work_time: formatHHMM(calculateWorkMins(r.clock_in_at, r.clock_out_at, r.breaks)), break_time: formatHHMM(calculateTotalBreak(r.breaks)) })));
     setLoading(false);
-  };
-
-  // --- 【重要】CSV出力ロジック：全日付を網羅し、空行を差し込む ---
-  const downloadAttendanceCSV = () => {
-    // 1. 指定期間の全日付リストを作成 (sv-SE形式: YYYY-MM-DD)
-    const start = new Date(filterStartDate);
-    const end = new Date(filterEndDate);
-    const dateArray: string[] = [];
-    let d = new Date(start);
-    while (d <= end) {
-      dateArray.push(d.toLocaleDateString('sv-SE'));
-      d.setDate(d.getDate() + 1);
-    }
-
-    // 2. 対象スタッフの決定
-    const targetStaffs = filterStaffId === "all" ? activeStaffList : adminStaffList.filter(s => s.id === filterStaffId);
-
-    // 3. CSVヘッダー
-    let csv = "日付,名前,出勤,退勤,休憩,実働\n";
-
-    // 4. スタッフ × 全日付 の2重ループでデータを紐付け
-    targetStaffs.forEach((st: any) => {
-      dateArray.forEach(dateStr => {
-        const record = adminReport.find(r => r.staff_id === st.id && r.work_date === dateStr);
-        // エクセルで見やすいようにスラッシュ区切りにする
-        const displayDate = dateStr.replace(/-/g, '/');
-        
-        if (record) {
-          // データがある場合
-          csv += `"${displayDate}","${st.name}","${formatToJSTTime(record.clock_in_at)}","${formatToJSTTime(record.clock_out_at)}","${record.break_time}","${record.work_time}"\n`;
-        } else {
-          // データがない場合は「日付」と「名前」だけ出力して他は空欄にする
-          csv += `"${displayDate}","${st.name}","","","",""\n`;
-        }
-      });
-    });
-
-    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
-    const blob = new Blob([bom, csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `AttendanceReport_${filterStartDate}.csv`;
-    link.click();
   };
 
   const handleEditClick = (record: any) => {
@@ -288,7 +273,7 @@ export default function DashboardPage() {
     setDeleteReason(""); setIsDeleteModalOpen(false); await generateAdminReport(); setLoading(false);
   };
 
-  // --- 5. タスク関連ハンドラ ---
+  // --- 6. タスク処理 ---
   const handleTaskAction = (t: any) => { setActiveTask(t); setIsQrVerified(t.status === 'started'); };
   const onQrScan = useCallback(async (txt: string) => {
     if (activeTask && txt === activeTask.task_master?.locations?.qr_token) {
@@ -323,13 +308,11 @@ export default function DashboardPage() {
     } catch { setLoading(false); }
   };
 
-  // 表示用タスク（前後30分）
   const displayTasks = useMemo(() => {
     const cur = currentTime.getHours() * 60 + currentTime.getMinutes();
     return tasks.filter(t => Math.abs(cur - ((t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0))) <= 30).sort((a,b)=>((a.task_master?.target_hour||0)*60+(a.task_master?.target_minute||0))-((b.task_master?.target_hour||0)*60+(b.task_master?.target_minute||0)));
   }, [tasks, currentTime]);
 
-  // 遅延タスク
   const overdueTasks = useMemo(() => {
     const cur = currentTime.getHours() * 60 + currentTime.getMinutes();
     return tasks.filter(t => ((t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0)) < cur - 30 && t.status !== 'completed').sort((a,b)=>((a.task_master?.target_hour||0)*60+(a.task_master?.target_minute||0))-((b.task_master?.target_hour||0)*60+(b.task_master?.target_minute||0)));
@@ -362,7 +345,7 @@ export default function DashboardPage() {
 
       <main className="flex-1 p-6 md:p-10 overflow-y-auto pt-24 md:pt-10">
         <div className="max-w-4xl mx-auto">
-          <div className="flex justify-between items-center mb-8"><img src="/logo.png" className="w-32" alt="logo" /><div className="bg-white px-4 py-1.5 rounded-full border flex items-center gap-2 font-black text-slate-500 text-xs"><Clock size={14} color="#75C9D7"/>{currentTime.toLocaleTimeString('ja-JP')}</div></div>
+          <div className="flex justify-between items-center mb-8"><img src="/logo.png" className="w-32" alt="logo" /><div className="bg-white px-4 py-1.5 rounded-full border flex items-center gap-2 font-black text-slate-500 text-xs text-black"><Clock size={14} color="#75C9D7"/>{currentTime.toLocaleTimeString('ja-JP')}</div></div>
 
           {menuChoice === "📋 本日の業務" && (
             <div className="space-y-6 animate-in fade-in">
@@ -435,8 +418,8 @@ export default function DashboardPage() {
             <div className="space-y-6">
               <div className="app-card">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
-                  <select className="p-3 bg-slate-50 font-bold text-sm border-none" value={filterStaffId} onChange={e => setFilterStaffId(e.target.value)}><option value="all">全員</option>{adminStaffList.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
-                  <input type="date" className="p-3 bg-slate-50 border-none font-bold" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} /><input type="date" className="p-3 bg-slate-50 border-none font-bold" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} />
+                  <select className="p-3 bg-slate-50 font-bold text-sm border-none text-black" value={filterStaffId} onChange={e => setFilterStaffId(e.target.value)}><option value="all">全員</option>{adminStaffList.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+                  <input type="date" className="p-3 bg-slate-50 border-none font-bold text-black" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} /><input type="date" className="p-3 bg-slate-50 border-none font-bold text-black" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} />
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <button onClick={generateAdminReport} className="admin-grid-btn bg-[#1a202c] text-white"><Search size={16}/>抽出</button>
@@ -444,58 +427,55 @@ export default function DashboardPage() {
                   <button onClick={() => {setEditingCard(null); setEditForm({staff_id: activeStaffList[0]?.id || "", work_date: todayISO, clock_in_time: "09:00", clock_out_time: "18:00", break_mins: "0"}); setIsEditModalOpen(true);}} className="admin-grid-btn bg-orange-400 text-white"><Plus size={16}/>追加</button>
                 </div>
               </div>
-              {adminReport.map((r: any) => (<div key={r.id} className="app-card flex justify-between items-center border-l-8 border-slate-100 py-4"><div className="flex-1"><p className="font-black text-sm text-black">{r.staff_name}</p><p className="text-[10px] text-slate-500">{r.work_date} (休:{r.break_time})</p><p className="text-xs font-bold text-[#75C9D7]">実働:{r.work_time}</p></div><div className="flex gap-1"><button onClick={() => handleEditClick(r)} className="p-2.5 bg-slate-50 text-slate-500 rounded-lg border-none"><Edit size={14}/></button><button onClick={() => { setDeleteTargetId(r.id); setDeleteReason(""); setIsDeleteModalOpen(true); }} className="p-2.5 bg-red-50 text-red-400 rounded-lg border-none"><Trash2 size={14}/></button></div></div>))}
+              {adminReport.map((r: any) => (<div key={r.id} className="app-card flex justify-between items-center border-l-8 border-slate-100 py-4 text-black"><div className="flex-1"><p className="font-black text-sm text-black">{r.staff_name}</p><p className="text-[10px] text-slate-500">{r.work_date} (休:{r.break_time})</p><p className="text-xs font-bold text-[#75C9D7]">実働:{r.work_time}</p></div><div className="flex gap-1"><button onClick={() => handleEditClick(r)} className="p-2.5 bg-slate-50 text-slate-500 rounded-lg border-none"><Edit size={14}/></button><button onClick={() => { setDeleteTargetId(r.id); setDeleteReason(""); setIsDeleteModalOpen(true); }} className="p-2.5 bg-red-50 text-red-400 rounded-lg border-none"><Trash2 size={14}/></button></div></div>))}
             </div>
           )}
         </div>
       </main>
 
-      {/* --- モーダル：スタッフ登録/修正 --- */}
+      {/* --- モーダル群 --- */}
       {isStaffModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl text-black">
             <h3 className="text-xl font-black mb-6 text-center">{editingStaff ? '👥 スタッフ情報の編集' : '✨ スタッフの新規登録'}</h3>
             <div className="space-y-4 overflow-y-auto max-h-[60vh] pr-2">
-              <div className="flex gap-2"><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">氏名</label><input type="text" className="w-full" value={staffForm.name} onChange={e=>setStaffForm({...staffForm, name:e.target.value})} /></div><div className="w-1/3"><label className="text-[10px] font-black text-slate-400 ml-1">権限</label><select className="w-full" value={staffForm.role} onChange={e=>setStaffForm({...staffForm, role:e.target.value})}><option value="staff">一般</option><option value="admin">管理者</option></select></div></div>
-              <div><label className="text-[10px] font-black text-slate-400 ml-1">スタッフID</label><input type="text" className="w-full" value={staffForm.staff_id} onChange={e=>setStaffForm({...staffForm, staff_id:e.target.value})} /></div>
-              <div className="flex gap-2"><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">生年月日</label><input type="date" className="w-full" value={staffForm.birthday} onChange={e=>setStaffForm({...staffForm, birthday:e.target.value})} /></div><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">入社日</label><input type="date" className="w-full" value={staffForm.hire_date} onChange={e=>setStaffForm({...staffForm, hire_date:e.target.value})} /></div></div>
-              <div><label className="text-[10px] font-black text-slate-400 ml-1">住所</label><textarea className="w-full" value={staffForm.address} onChange={e=>setStaffForm({...staffForm, address:e.target.value})} rows={2} /></div>
-              {!editingStaff && <div><label className="text-[10px] font-black text-slate-400 ml-1">初期パスワード</label><input type="text" className="w-full" value={staffForm.password} onChange={e=>setStaffForm({...staffForm, password:e.target.value})} /></div>}
+              <div className="flex gap-2"><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">氏名</label><input type="text" className="w-full text-black" value={staffForm.name} onChange={e=>setStaffForm({...staffForm, name:e.target.value})} /></div><div className="w-1/3"><label className="text-[10px] font-black text-slate-400 ml-1">権限</label><select className="w-full text-black" value={staffForm.role} onChange={e=>setStaffForm({...staffForm, role:e.target.value})}><option value="staff">一般</option><option value="admin">管理者</option></select></div></div>
+              <div><label className="text-[10px] font-black text-slate-400 ml-1">スタッフID</label><input type="text" className="w-full text-black" value={staffForm.staff_id} onChange={e=>setStaffForm({...staffForm, staff_id:e.target.value})} /></div>
+              <div className="flex gap-2"><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">生年月日</label><input type="date" className="w-full text-black" value={staffForm.birthday} onChange={e=>setStaffForm({...staffForm, birthday:e.target.value})} /></div><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">入社日</label><input type="date" className="w-full text-black" value={staffForm.hire_date} onChange={e=>setStaffForm({...staffForm, hire_date:e.target.value})} /></div></div>
+              <div><label className="text-[10px] font-black text-slate-400 ml-1">住所</label><textarea className="w-full text-black" value={staffForm.address} onChange={e=>setStaffForm({...staffForm, address:e.target.value})} rows={2} /></div>
+              {!editingStaff && <div><label className="text-[10px] font-black text-slate-400 ml-1">初期パスワード</label><input type="text" className="w-full text-black" value={staffForm.password} onChange={e=>setStaffForm({...staffForm, password:e.target.value})} /></div>}
             </div>
             <div className="flex gap-3 mt-8"><button onClick={()=>setIsStaffModalOpen(false)} className="flex-1 py-4 bg-slate-50 text-slate-400 font-black rounded-2xl border-none">中止</button><button onClick={handleSaveStaff} className="flex-1 py-4 bg-[#75C9D7] text-white font-black rounded-2xl shadow-lg border-none flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin" size={20}/> : <Save size={20}/>}保存</button></div>
           </div>
         </div>
       )}
 
-      {/* モーダル：退職処理 */}
       {isResignModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl text-black">
             <h3 className="text-xl font-black mb-2 text-center text-orange-500">退職処理</h3>
             <p className="text-xs text-slate-400 font-bold text-center mb-6">{editingStaff?.name} の退職日を入力してください。</p>
-            <input type="date" className="w-full mb-8" value={staffForm.resignation_date} onChange={e=>setStaffForm({...staffForm, resignation_date:e.target.value})} />
+            <input type="date" className="w-full mb-8 text-black" value={staffForm.resignation_date} onChange={e=>setStaffForm({...staffForm, resignation_date:e.target.value})} />
             <div className="flex gap-3"><button onClick={()=>setIsResignModalOpen(false)} className="flex-1 py-4 bg-slate-50 text-slate-400 font-black rounded-2xl border-none">中止</button><button onClick={handleResignStaff} className="flex-1 py-4 bg-orange-500 text-white font-black rounded-2xl border-none">退職を確定</button></div>
           </div>
         </div>
       )}
 
-      {/* モーダル：勤怠修正 */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 text-black">
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
             <h3 className="text-lg font-black mb-6 text-center">勤怠修正</h3>
             <div className="space-y-4">
-              <div><label className="text-[10px] font-black text-slate-400 ml-1">スタッフ</label><select className="w-full" value={editForm.staff_id} onChange={e => setEditForm({...editForm, staff_id: e.target.value})} disabled={!!editingCard}>{activeStaffList.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-              <div><label className="text-[10px] font-black text-slate-400 ml-1">日付</label><input type="date" className="w-full" value={editForm.work_date} onChange={e => setEditForm({...editForm, work_date: e.target.value})} /></div>
-              <div className="flex gap-3"><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">出勤</label><input type="time" className="w-full" value={editForm.clock_in_time} onChange={e => setEditForm({...editForm, clock_in_time: e.target.value})} /></div><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">退勤</label><input type="time" className="w-full" value={editForm.clock_out_time} onChange={e => setEditForm({...editForm, clock_out_time: e.target.value})} /></div></div>
-              <div><label className="text-[10px] font-black text-slate-400 ml-1">休憩(分)</label><input type="number" className="w-full" value={editForm.break_mins} onChange={e => setEditForm({...editForm, break_mins: e.target.value})} /></div>
+              <div><label className="text-[10px] font-black text-slate-400 ml-1">スタッフ</label><select className="w-full text-black" value={editForm.staff_id} onChange={e => setEditForm({...editForm, staff_id: e.target.value})} disabled={!!editingCard}>{activeStaffList.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+              <div><label className="text-[10px] font-black text-slate-400 ml-1">日付</label><input type="date" className="w-full text-black" value={editForm.work_date} onChange={e => setEditForm({...editForm, work_date: e.target.value})} /></div>
+              <div className="flex gap-3"><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">出勤</label><input type="time" className="w-full text-black" value={editForm.clock_in_time} onChange={e => setEditForm({...editForm, clock_in_time: e.target.value})} /></div><div className="flex-1"><label className="text-[10px] font-black text-slate-400 ml-1">退勤</label><input type="time" className="w-full text-black" value={editForm.clock_out_time} onChange={e => setEditForm({...editForm, clock_out_time: e.target.value})} /></div></div>
+              <div><label className="text-[10px] font-black text-slate-400 ml-1">休憩(分)</label><input type="number" className="w-full text-black" value={editForm.break_mins} onChange={e => setEditForm({...editForm, break_mins: e.target.value})} /></div>
             </div>
             <div className="flex gap-3 mt-8"><button onClick={() => setIsEditModalOpen(false)} className="flex-1 py-3 bg-slate-50 text-slate-400 rounded-xl border-none">中止</button><button onClick={handleSaveRecord} className="flex-1 py-3 bg-[#75C9D7] text-white rounded-xl shadow-lg border-none flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>}保存</button></div>
           </div>
         </div>
       )}
 
-      {/* モーダル：削除確認 */}
       {isDeleteModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 text-black">
           <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl">
@@ -504,7 +484,7 @@ export default function DashboardPage() {
               <h3 className="text-xl font-black mb-2 text-red-600">記録の削除確認</h3>
               <p className="text-xs text-slate-400 font-bold mb-6">誤削除防止のため、理由を入力してください。</p>
             </div>
-            <textarea className="w-full mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-200 font-bold text-sm" rows={3} placeholder="理由を入力してください..." value={deleteReason} onChange={(e)=>setDeleteReason(e.target.value)} />
+            <textarea className="w-full mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-200 font-bold text-sm text-black" rows={3} placeholder="理由を入力してください..." value={deleteReason} onChange={(e)=>setDeleteReason(e.target.value)} />
             <div className="flex gap-3">
               <button onClick={()=>setIsDeleteModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 font-black rounded-2xl border-none">中止</button>
               <button onClick={handleConfirmDelete} className={`flex-1 py-4 text-white font-black rounded-2xl border-none shadow-lg transition-all ${deleteReason.trim() ? 'bg-red-500' : 'bg-red-200 cursor-not-allowed'}`}>削除を実行</button>
@@ -513,7 +493,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* タスク実行オーバーレイ */}
       {activeTask && (
         <div className="fixed inset-0 bg-white z-[300] flex flex-col p-6 pt-10 overflow-y-auto text-center text-black">
           <div className="flex justify-between items-center mb-8 px-2"><button onClick={() => setActiveTask(null)} className="p-3 bg-slate-50 rounded-xl border-none"><PauseCircle size={20}/></button><h2 className="text-lg font-black italic">MISSION</h2><div className="w-10"></div></div>
