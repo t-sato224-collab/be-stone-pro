@@ -37,7 +37,6 @@ export default function DashboardPage() {
   const [filterEndDate, setFilterEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [staffListMode, setStaffListMode] = useState<'active' | 'resigned'>('active');
 
-  // モーダル
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
@@ -51,32 +50,35 @@ export default function DashboardPage() {
   const [editForm, setEditForm] = useState({ staff_id: "", work_date: "", clock_in_time: "", clock_out_time: "", break_mins: "0" });
   const [staffForm, setStaffForm] = useState({ staff_id: "", name: "", role: "staff", password: "1234", address: "", birthday: "", hire_date: "", resignation_date: "" });
 
-  // --- 2. 派生データ ---
-  const activeStaffList = useMemo(() => 
-    adminStaffList.filter((s: any) => !s.resignation_date), 
-    [adminStaffList]
-  );
-
-  // --- 3. ユーティリティ ---
+  // --- 2. ユーティリティ関数（エラー回避のため、先に定義します） ---
   const formatToJSTTime = (s: string | null) => s ? new Date(s).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) : "";
   const isoToTime = (s: string | null) => s ? `${String(new Date(s).getHours()).padStart(2,'0')}:${String(new Date(s).getMinutes()).padStart(2,'0')}` : "";
   const formatHHMM = (m: number) => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
   const todayISO = useMemo(() => new Date().toISOString().split('T')[0], []);
   const minDateLimit = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().split('T')[0]; }, []);
 
+  // 休憩時間の合計（分）を計算
   const calculateTotalBreak = useCallback((brks: any[], includeActive: boolean = false) => {
     let t = 0; brks?.forEach(b => { if (b.break_start_at && b.break_end_at) t += Math.round((new Date(b.break_end_at).getTime() - new Date(b.break_start_at).getTime())/60000); });
     if (includeActive) { const a = brks?.find(b => !b.break_end_at); if (a) t += Math.round((currentTime.getTime() - new Date(a.break_start_at).getTime())/60000); }
     return t;
   }, [currentTime]);
 
-  const calculateWorkMins = (cIn: string, cOut: string | null, brks: any[]) => {
+  // 実働時間（分）を計算
+  const calculateWorkMins = useCallback((cIn: string, cOut: string | null, brks: any[]) => {
     if (!cIn) return 0;
     const end = cOut ? new Date(cOut) : currentTime;
-    return Math.max(0, Math.round((end.getTime() - new Date(cIn).getTime())/60000) - calculateTotalBreak(brks, !cOut));
-  };
+    const diff = Math.round((end.getTime() - new Date(cIn).getTime())/60000);
+    return Math.max(0, diff - calculateTotalBreak(brks, !cOut));
+  }, [currentTime, calculateTotalBreak]);
 
-  // --- 4. データ同期 ---
+  // 在籍スタッフ一覧の定義
+  const activeStaffList = useMemo(() => 
+    adminStaffList.filter((s: any) => !s.resignation_date), 
+    [adminStaffList]
+  );
+
+  // --- 3. データ同期 ---
   const fetchTasks = useCallback(async () => {
     const todayStr = new Date().toLocaleDateString('sv-SE');
     const todayDay = new Date().getDay();
@@ -95,11 +97,7 @@ export default function DashboardPage() {
 
   const fetchAdminMonitor = useCallback(async (date: string) => {
     setLoading(true);
-    const { data } = await supabase.from('task_logs')
-      .select('*, staff(name), task_master(*, locations(*))')
-      .eq('work_date', date)
-      .eq('status', 'completed')
-      .order('completed_at', { ascending: false });
+    const { data } = await supabase.from('task_logs').select('*, staff(name), task_master(*, locations(*))').eq('work_date', date).eq('status', 'completed').order('completed_at', { ascending: false });
     if (data) setAdminTasks(data);
     setLoading(false);
   }, []);
@@ -119,20 +117,14 @@ export default function DashboardPage() {
     const start = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
     const { data: h } = await supabase.from('timecards').select('*, breaks(*)').eq('staff_id', staffId).gte('work_date', start).order('work_date', { ascending: false });
     if (h) setPersonalHistory(h.map((r: any) => ({ ...r, work_time: formatHHMM(calculateWorkMins(r.clock_in_at, r.clock_out_at, r.breaks)), break_time: formatHHMM(calculateTotalBreak(r.breaks)) })));
-  }, [fetchTasks, currentTime, calculateTotalBreak]);
+  }, [fetchTasks, calculateWorkMins, calculateTotalBreak]);
 
   useEffect(() => {
     const id = localStorage.getItem('staff_id'); if (!id) { window.location.href = '/'; return; }
     const init = async () => {
-      const page = localStorage.getItem('active_page') || "📋 本日の業務"; 
-      setMenuChoice(page);
+      const page = localStorage.getItem('active_page') || "📋 本日の業務"; setMenuChoice(page);
       const { data: s } = await supabase.from('staff').select('*').eq('staff_id', id).single();
-      if (s) { 
-        setStaff(s); 
-        syncStatus(s.id); 
-        fetchAdminStaffList(); 
-        if (page.includes("監視")) fetchAdminMonitor(monitorDate);
-      }
+      if (s) { setStaff(s); syncStatus(s.id); fetchAdminStaffList(); if (page.includes("監視")) fetchAdminMonitor(monitorDate); }
       else { localStorage.clear(); window.location.href = '/'; }
     };
     init();
@@ -140,9 +132,9 @@ export default function DashboardPage() {
     const resizer = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', resizer); resizer();
     return () => { clearInterval(timer); window.removeEventListener('resize', resizer); };
-  }, [syncStatus, fetchAdminStaffList]);
+  }, [syncStatus, fetchAdminStaffList, fetchAdminMonitor, monitorDate]);
 
-  // --- 5. 実行ハンドラ ---
+  // --- 4. ハンドラ ---
   const handleClockAction = async (type: 'in' | 'out' | 'break') => {
     setLoading(true);
     if (type === 'in') await supabase.from('timecards').insert({ staff_id: staff.id, staff_name: staff.name, clock_in_at: new Date().toISOString(), work_date: todayISO });
@@ -157,15 +149,7 @@ export default function DashboardPage() {
   const handleSaveStaff = async () => {
     if(!staffForm.staff_id || !staffForm.name) { alert("必須項目を入力してください"); return; }
     setLoading(true);
-    const payload = {
-        staff_id: staffForm.staff_id,
-        name: staffForm.name,
-        role: staffForm.role,
-        address: staffForm.address,
-        birthday: staffForm.birthday || null,
-        hire_date: staffForm.hire_date || null,
-        resignation_date: staffForm.resignation_date || null
-    };
+    const payload = { staff_id: staffForm.staff_id, name: staffForm.name, role: staffForm.role, address: staffForm.address, birthday: staffForm.birthday || null, hire_date: staffForm.hire_date || null, resignation_date: staffForm.resignation_date || null };
     if (editingStaff) await supabase.from('staff').update(payload).eq('id', editingStaff.id);
     else await supabase.from('staff').insert({ ...payload, password: staffForm.password, is_initial_password: true });
     setIsStaffModalOpen(false); await fetchAdminStaffList(); setLoading(false);
@@ -185,7 +169,6 @@ export default function DashboardPage() {
     await fetchAdminStaffList(); setLoading(false);
   };
 
-  // スタッフ名簿CSV（ズレ防止対応済み）
   const downloadStaffCSV = () => {
     const header = "ID,名前,権限,住所,生年月日,入社日,退社日,在籍状況\n";
     const rows = adminStaffList.map((s: any) => {
@@ -206,42 +189,26 @@ export default function DashboardPage() {
     setLoading(false);
   };
 
-  // --- 重要：出勤簿CSV（日付を全て出し、空の日も出力する修正） ---
   const downloadAttendanceCSV = () => {
-    // 1. 選択された期間の全日付リストを作成
     const start = new Date(filterStartDate);
     const end = new Date(filterEndDate);
     const dateArray: string[] = [];
     let d = new Date(start);
     while (d <= end) {
-      dateArray.push(d.toLocaleDateString('sv-SE')); // YYYY-MM-DD 形式
+      dateArray.push(d.toLocaleDateString('sv-SE'));
       d.setDate(d.getDate() + 1);
     }
-
-    // 2. 出力対象のスタッフを特定
     const targetStaffs = filterStaffId === "all" ? activeStaffList : adminStaffList.filter(s => s.id === filterStaffId);
-
-    let csv = "名前,日付,出勤,退勤,休憩,実働\n";
-
-    // 3. スタッフごと、日付ごとにループして埋める
-    targetStaffs.forEach((s: any) => {
+    let csv = "日付,名前,出勤,退勤,休憩,実働\n";
+    targetStaffs.forEach((st: any) => {
       dateArray.forEach(dateStr => {
-        const record = adminReport.find(r => r.staff_id === s.id && r.work_date === dateStr);
-        if (record) {
-          csv += `"${s.name}","${dateStr}","${formatToJSTTime(record.clock_in_at)}","${formatToJSTTime(record.clock_out_at)}","${record.break_time}","${record.work_time}"\n`;
-        } else {
-          // データがない日は空欄で出力（日付セルは出す）
-          csv += `"${s.name}","${dateStr}","","","",""\n`;
-        }
+        const record = adminReport.find(r => r.staff_id === st.id && r.work_date === dateStr);
+        const displayDate = dateStr.replace(/-/g, '/');
+        if (record) csv += `"${displayDate}","${st.name}","${formatToJSTTime(record.clock_in_at)}","${formatToJSTTime(record.clock_out_at)}","${record.break_time}","${record.work_time}"\n`;
+        else csv += `"${displayDate}","${st.name}","","","",""\n`;
       });
     });
-
-    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
-    const blob = new Blob([bom, csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `AttendanceReport_${filterStartDate}_to_${filterEndDate}.csv`;
-    link.click();
+    const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv])); link.download = `AttendanceReport_${filterStartDate}.csv`; link.click();
   };
 
   const handleEditClick = (record: any) => {
@@ -268,8 +235,11 @@ export default function DashboardPage() {
   };
 
   const handleConfirmDelete = async () => {
-    setLoading(true); await supabase.from('breaks').delete().eq('timecard_id', deleteTargetId); await supabase.from('timecards').delete().eq('id', deleteTargetId);
-    setIsDeleteModalOpen(false); await generateAdminReport(); setLoading(false);
+    if (!deleteReason.trim()) { alert("削除理由を入力してください。"); return; }
+    setLoading(true);
+    await supabase.from('breaks').delete().eq('timecard_id', deleteTargetId);
+    await supabase.from('timecards').delete().eq('id', deleteTargetId);
+    setDeleteReason(""); setIsDeleteModalOpen(false); await generateAdminReport(); setLoading(false);
   };
 
   const handleTaskAction = (t: any) => { setActiveTask(t); setIsQrVerified(t.status === 'started'); };
@@ -306,6 +276,7 @@ export default function DashboardPage() {
     } catch { setLoading(false); }
   };
 
+  // --- 5. レンダリング準備 ---
   const displayTasks = useMemo(() => {
     const cur = currentTime.getHours() * 60 + currentTime.getMinutes();
     return tasks.filter(t => Math.abs(cur - ((t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0))) <= 30).sort((a,b)=>((a.task_master?.target_hour||0)*60+(a.task_master?.target_minute||0))-((b.task_master?.target_hour||0)*60+(b.task_master?.target_minute||0)));
@@ -345,11 +316,10 @@ export default function DashboardPage() {
         <div className="max-w-4xl mx-auto">
           <div className="flex justify-between items-center mb-8"><img src="/logo.png" className="w-32" alt="logo" /><div className="bg-white px-4 py-1.5 rounded-full border flex items-center gap-2 font-black text-slate-500 text-xs"><Clock size={14} color="#75C9D7"/>{currentTime.toLocaleTimeString('ja-JP')}</div></div>
 
-          {/* --- メイン画面切り替え --- */}
           {menuChoice === "📋 本日の業務" && (
             <div className="space-y-6 animate-in fade-in">
               <div className="app-card border-l-8 border-[#75C9D7] text-center">
-                {attendanceStatus === 'offline' ? <button onClick={() => handleClockAction('in')} className="w-full py-5 bg-[#75C9D7] text-white font-black rounded-2xl text-xl border-none">🚀 業務開始 (出勤)</button> : <>
+                {attendanceStatus === 'offline' ? <button onClick={() => handleClockAction('in')} className="w-full py-5 bg-[#75C9D7] text-white font-black rounded-2xl text-xl border-none shadow-lg">🚀 業務開始 (出勤)</button> : <>
                     <div className="flex gap-3 mb-4"><button onClick={() => handleClockAction('break')} className={`flex-1 py-4 border-none ${attendanceStatus === 'break' ? 'bg-orange-400' : 'bg-[#1a202c]'} text-white font-black rounded-2xl`}>{attendanceStatus === 'break' ? '🏃 業務復帰' : '☕ 休憩入り'}</button><button onClick={() => handleClockAction('out')} className="flex-1 py-4 bg-white border border-slate-200 text-slate-400 font-black rounded-2xl">退勤</button></div>
                     <p className="text-sm font-bold text-slate-400">出勤：{formatToJSTTime(currCard?.clock_in_at)}</p>
                     <p className="text-lg font-black mt-1" style={{color: attendanceStatus === 'break' ? '#ED8936' : '#75C9D7'}}>{attendanceStatus === 'break' ? "休憩中" : "実働中"}：{formatHHMM(calculateWorkMins(currCard?.clock_in_at, null, breaksList))}</p>
@@ -432,7 +402,7 @@ export default function DashboardPage() {
         </div>
       </main>
 
-      {/* --- モーダル：スタッフ登録/修正 --- */}
+      {/* --- モーダル群 --- */}
       {isStaffModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl text-black">
@@ -449,7 +419,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* モーダル：退職処理 */}
       {isResignModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl text-black">
@@ -461,7 +430,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* モーダル：勤怠修正 */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 text-black">
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
@@ -477,18 +445,23 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* モーダル：削除確認 */}
       {isDeleteModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 text-black">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl">
-            <div className="text-center"><AlertTriangle size={48} className="text-red-500 mb-4 mx-auto" /><h3 className="text-xl font-black mb-6 text-red-600">記録の削除確認</h3></div>
-            <textarea className="w-full mb-6" rows={3} placeholder="理由を入力..." value={deleteReason} onChange={(e)=>setDeleteReason(e.target.value)} />
-            <div className="flex gap-3"><button onClick={()=>setIsDeleteModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl border-none">中止</button><button onClick={handleConfirmDelete} className="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl border-none">実行</button></div>
+          <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl">
+            <div className="text-center">
+              <AlertTriangle size={48} className="text-red-500 mb-4 mx-auto" />
+              <h3 className="text-xl font-black mb-2 text-red-600">記録の削除確認</h3>
+              <p className="text-xs text-slate-400 font-bold mb-6">誤削除防止のため、理由を入力してください。</p>
+            </div>
+            <textarea className="w-full mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-200 font-bold text-sm" rows={3} placeholder="理由を入力してください..." value={deleteReason} onChange={(e)=>setDeleteReason(e.target.value)} />
+            <div className="flex gap-3">
+              <button onClick={()=>setIsDeleteModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 font-black rounded-2xl border-none">中止</button>
+              <button onClick={handleConfirmDelete} className={`flex-1 py-4 text-white font-black rounded-2xl border-none shadow-lg transition-all ${deleteReason.trim() ? 'bg-red-500' : 'bg-red-200 cursor-not-allowed'}`}>削除を実行</button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* タスク実行オーバーレイ */}
       {activeTask && (
         <div className="fixed inset-0 bg-white z-[300] flex flex-col p-6 pt-10 overflow-y-auto text-center text-black">
           <div className="flex justify-between items-center mb-8 px-2"><button onClick={() => setActiveTask(null)} className="p-3 bg-slate-50 rounded-xl border-none"><PauseCircle size={20}/></button><h2 className="text-lg font-black italic">MISSION</h2><div className="w-10"></div></div>
