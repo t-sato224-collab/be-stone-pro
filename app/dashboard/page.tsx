@@ -32,11 +32,13 @@ export default function DashboardPage() {
   const [adminReport, setAdminReport] = useState<any[]>([]);
   const [monitorDate, setMonitorDate] = useState(new Date().toISOString().split('T')[0]);
   
+  // フィルタ用初期値
   const [filterStaffId, setFilterStaffId] = useState("all");
   const [filterStartDate, setFilterStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
   const [filterEndDate, setFilterEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [staffListMode, setStaffListMode] = useState<'active' | 'resigned'>('active');
 
+  // モーダル
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
@@ -50,17 +52,20 @@ export default function DashboardPage() {
   const [editForm, setEditForm] = useState({ staff_id: "", work_date: "", clock_in_time: "", clock_out_time: "", break_mins: "0" });
   const [staffForm, setStaffForm] = useState({ staff_id: "", name: "", role: "staff", password: "1234", address: "", birthday: "", hire_date: "", resignation_date: "" });
 
-  // --- 2. ユーティリティ関数（エラー回避のため、先に定義します） ---
-  const formatToJSTTime = (s: string | null) => s ? new Date(s).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) : "";
-  const isoToTime = (s: string | null) => s ? `${String(new Date(s).getHours()).padStart(2,'0')}:${String(new Date(s).getMinutes()).padStart(2,'0')}` : "";
-  const formatHHMM = (m: number) => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
-  const todayISO = useMemo(() => new Date().toISOString().split('T')[0], []);
-  const minDateLimit = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().split('T')[0]; }, []);
+  // --- 2. ユーティリティ関数（定義順序エラー回避のため、ロジックより先に記述） ---
 
   // 休憩時間の合計（分）を計算
   const calculateTotalBreak = useCallback((brks: any[], includeActive: boolean = false) => {
-    let t = 0; brks?.forEach(b => { if (b.break_start_at && b.break_end_at) t += Math.round((new Date(b.break_end_at).getTime() - new Date(b.break_start_at).getTime())/60000); });
-    if (includeActive) { const a = brks?.find(b => !b.break_end_at); if (a) t += Math.round((currentTime.getTime() - new Date(a.break_start_at).getTime())/60000); }
+    let t = 0; 
+    brks?.forEach(b => { 
+      if (b.break_start_at && b.break_end_at) {
+        t += Math.round((new Date(b.break_end_at).getTime() - new Date(b.break_start_at).getTime()) / 60000); 
+      }
+    });
+    if (includeActive) { 
+      const a = brks?.find(b => !b.break_end_at); 
+      if (a) t += Math.round((currentTime.getTime() - new Date(a.break_start_at).getTime()) / 60000); 
+    }
     return t;
   }, [currentTime]);
 
@@ -68,17 +73,24 @@ export default function DashboardPage() {
   const calculateWorkMins = useCallback((cIn: string, cOut: string | null, brks: any[]) => {
     if (!cIn) return 0;
     const end = cOut ? new Date(cOut) : currentTime;
-    const diff = Math.round((end.getTime() - new Date(cIn).getTime())/60000);
+    const diff = Math.round((end.getTime() - new Date(cIn).getTime()) / 60000);
     return Math.max(0, diff - calculateTotalBreak(brks, !cOut));
   }, [currentTime, calculateTotalBreak]);
 
-  // 在籍スタッフ一覧の定義
+  const formatToJSTTime = (s: string | null) => s ? new Date(s).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) : "";
+  const isoToTime = (s: string | null) => s ? `${String(new Date(s).getHours()).padStart(2,'0')}:${String(new Date(s).getMinutes()).padStart(2,'0')}` : "";
+  const formatHHMM = (m: number) => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+  const todayISO = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const minDateLimit = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().split('T')[0]; }, []);
+
+  // 在籍スタッフ一覧
   const activeStaffList = useMemo(() => 
     adminStaffList.filter((s: any) => !s.resignation_date), 
     [adminStaffList]
   );
 
-  // --- 3. データ同期 ---
+  // --- 3. データ同期処理 ---
+
   const fetchTasks = useCallback(async () => {
     const todayStr = new Date().toLocaleDateString('sv-SE');
     const todayDay = new Date().getDay();
@@ -110,10 +122,17 @@ export default function DashboardPage() {
   const syncStatus = useCallback(async (staffId: string) => {
     const { data: tc } = await supabase.from('timecards').select('*').eq('staff_id', staffId).is('clock_out_at', null).maybeSingle();
     if (tc) {
-      setCurrCard(tc); const { data: brs } = await supabase.from('breaks').select('*').eq('timecard_id', tc.id);
-      setBreaksList(brs || []); setAttendanceStatus(brs?.find((b: any) => !b.break_end_at) ? 'break' : 'working');
-    } else { setCurrCard(null); setBreaksList([]); setAttendanceStatus('offline'); }
+      setCurrCard(tc); 
+      const { data: brs } = await supabase.from('breaks').select('*').eq('timecard_id', tc.id);
+      setBreaksList(brs || []); 
+      setAttendanceStatus(brs?.find((b: any) => !b.break_end_at) ? 'break' : 'working');
+    } else { 
+      setCurrCard(null); 
+      setBreaksList([]); 
+      setAttendanceStatus('offline'); 
+    }
     fetchTasks();
+    // 個人履歴の取得
     const start = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
     const { data: h } = await supabase.from('timecards').select('*, breaks(*)').eq('staff_id', staffId).gte('work_date', start).order('work_date', { ascending: false });
     if (h) setPersonalHistory(h.map((r: any) => ({ ...r, work_time: formatHHMM(calculateWorkMins(r.clock_in_at, r.clock_out_at, r.breaks)), break_time: formatHHMM(calculateTotalBreak(r.breaks)) })));
@@ -124,7 +143,12 @@ export default function DashboardPage() {
     const init = async () => {
       const page = localStorage.getItem('active_page') || "📋 本日の業務"; setMenuChoice(page);
       const { data: s } = await supabase.from('staff').select('*').eq('staff_id', id).single();
-      if (s) { setStaff(s); syncStatus(s.id); fetchAdminStaffList(); if (page.includes("監視")) fetchAdminMonitor(monitorDate); }
+      if (s) { 
+        setStaff(s); 
+        syncStatus(s.id); 
+        fetchAdminStaffList(); 
+        if (page.includes("監視")) fetchAdminMonitor(monitorDate); 
+      }
       else { localStorage.clear(); window.location.href = '/'; }
     };
     init();
@@ -134,7 +158,8 @@ export default function DashboardPage() {
     return () => { clearInterval(timer); window.removeEventListener('resize', resizer); };
   }, [syncStatus, fetchAdminStaffList, fetchAdminMonitor, monitorDate]);
 
-  // --- 4. ハンドラ ---
+  // --- 4. アクションハンドラ ---
+
   const handleClockAction = async (type: 'in' | 'out' | 'break') => {
     setLoading(true);
     if (type === 'in') await supabase.from('timecards').insert({ staff_id: staff.id, staff_name: staff.name, clock_in_at: new Date().toISOString(), work_date: todayISO });
@@ -163,7 +188,7 @@ export default function DashboardPage() {
   };
 
   const handlePermanentDeleteStaff = async (id: string) => {
-    if(!confirm("スタッフの全データを完全に削除します。よろしいですか？")) return;
+    if(!confirm("スタッフの全データを完全に削除します。元に戻せませんがよろしいですか？")) return;
     setLoading(true);
     await supabase.from('staff').delete().eq('id', id);
     await fetchAdminStaffList(); setLoading(false);
@@ -189,7 +214,9 @@ export default function DashboardPage() {
     setLoading(false);
   };
 
+  // --- 【重要】CSV出力ロジック：全日付を網羅し、空行を差し込む ---
   const downloadAttendanceCSV = () => {
+    // 1. 指定期間の全日付リストを作成 (sv-SE形式: YYYY-MM-DD)
     const start = new Date(filterStartDate);
     const end = new Date(filterEndDate);
     const dateArray: string[] = [];
@@ -198,17 +225,36 @@ export default function DashboardPage() {
       dateArray.push(d.toLocaleDateString('sv-SE'));
       d.setDate(d.getDate() + 1);
     }
+
+    // 2. 対象スタッフの決定
     const targetStaffs = filterStaffId === "all" ? activeStaffList : adminStaffList.filter(s => s.id === filterStaffId);
+
+    // 3. CSVヘッダー
     let csv = "日付,名前,出勤,退勤,休憩,実働\n";
+
+    // 4. スタッフ × 全日付 の2重ループでデータを紐付け
     targetStaffs.forEach((st: any) => {
       dateArray.forEach(dateStr => {
         const record = adminReport.find(r => r.staff_id === st.id && r.work_date === dateStr);
+        // エクセルで見やすいようにスラッシュ区切りにする
         const displayDate = dateStr.replace(/-/g, '/');
-        if (record) csv += `"${displayDate}","${st.name}","${formatToJSTTime(record.clock_in_at)}","${formatToJSTTime(record.clock_out_at)}","${record.break_time}","${record.work_time}"\n`;
-        else csv += `"${displayDate}","${st.name}","","","",""\n`;
+        
+        if (record) {
+          // データがある場合
+          csv += `"${displayDate}","${st.name}","${formatToJSTTime(record.clock_in_at)}","${formatToJSTTime(record.clock_out_at)}","${record.break_time}","${record.work_time}"\n`;
+        } else {
+          // データがない場合は「日付」と「名前」だけ出力して他は空欄にする
+          csv += `"${displayDate}","${st.name}","","","",""\n`;
+        }
       });
     });
-    const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv])); link.download = `AttendanceReport_${filterStartDate}.csv`; link.click();
+
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    const blob = new Blob([bom, csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `AttendanceReport_${filterStartDate}.csv`;
+    link.click();
   };
 
   const handleEditClick = (record: any) => {
@@ -242,6 +288,7 @@ export default function DashboardPage() {
     setDeleteReason(""); setIsDeleteModalOpen(false); await generateAdminReport(); setLoading(false);
   };
 
+  // --- 5. タスク関連ハンドラ ---
   const handleTaskAction = (t: any) => { setActiveTask(t); setIsQrVerified(t.status === 'started'); };
   const onQrScan = useCallback(async (txt: string) => {
     if (activeTask && txt === activeTask.task_master?.locations?.qr_token) {
@@ -276,12 +323,13 @@ export default function DashboardPage() {
     } catch { setLoading(false); }
   };
 
-  // --- 5. レンダリング準備 ---
+  // 表示用タスク（前後30分）
   const displayTasks = useMemo(() => {
     const cur = currentTime.getHours() * 60 + currentTime.getMinutes();
     return tasks.filter(t => Math.abs(cur - ((t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0))) <= 30).sort((a,b)=>((a.task_master?.target_hour||0)*60+(a.task_master?.target_minute||0))-((b.task_master?.target_hour||0)*60+(b.task_master?.target_minute||0)));
   }, [tasks, currentTime]);
 
+  // 遅延タスク
   const overdueTasks = useMemo(() => {
     const cur = currentTime.getHours() * 60 + currentTime.getMinutes();
     return tasks.filter(t => ((t.task_master?.target_hour || 0) * 60 + (t.task_master?.target_minute || 0)) < cur - 30 && t.status !== 'completed').sort((a,b)=>((a.task_master?.target_hour||0)*60+(a.task_master?.target_minute||0))-((b.task_master?.target_hour||0)*60+(b.task_master?.target_minute||0)));
@@ -402,7 +450,7 @@ export default function DashboardPage() {
         </div>
       </main>
 
-      {/* --- モーダル群 --- */}
+      {/* --- モーダル：スタッフ登録/修正 --- */}
       {isStaffModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl text-black">
@@ -419,6 +467,7 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* モーダル：退職処理 */}
       {isResignModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl text-black">
@@ -430,6 +479,7 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* モーダル：勤怠修正 */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 text-black">
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
@@ -445,6 +495,7 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* モーダル：削除確認 */}
       {isDeleteModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 text-black">
           <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl">
@@ -462,6 +513,7 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* タスク実行オーバーレイ */}
       {activeTask && (
         <div className="fixed inset-0 bg-white z-[300] flex flex-col p-6 pt-10 overflow-y-auto text-center text-black">
           <div className="flex justify-between items-center mb-8 px-2"><button onClick={() => setActiveTask(null)} className="p-3 bg-slate-50 rounded-xl border-none"><PauseCircle size={20}/></button><h2 className="text-lg font-black italic">MISSION</h2><div className="w-10"></div></div>
