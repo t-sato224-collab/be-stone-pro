@@ -41,7 +41,7 @@ export default function DashboardPage() {
   const [deleteTargetId, setDeleteTargetId] = useState<string|null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   const [editForm, setEditForm] = useState({ staff_id: "", work_date: "", clock_in_time: "", clock_out_time: "", break_mins: "0" });
-  const [staffForm, setStaffForm] = useState({ staff_id: "", name: "", role: "staff", password: "1234" });
+  const [staffForm, setStaffForm] = useState({ staff_id: "", name: "", role: "staff", password: "pass123" });
 
   // --- 2. 補助関数 ---
   const formatToJSTTime = (s: string | null) => s ? new Date(s).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false }) : "";
