@@ -185,6 +185,7 @@ export default function DashboardPage() {
     await fetchAdminStaffList(); setLoading(false);
   };
 
+  // スタッフ名簿CSV（ズレ防止対応済み）
   const downloadStaffCSV = () => {
     const header = "ID,名前,権限,住所,生年月日,入社日,退社日,在籍状況\n";
     const rows = adminStaffList.map((s: any) => {
@@ -205,10 +206,42 @@ export default function DashboardPage() {
     setLoading(false);
   };
 
+  // --- 重要：出勤簿CSV（日付を全て出し、空の日も出力する修正） ---
   const downloadAttendanceCSV = () => {
+    // 1. 選択された期間の全日付リストを作成
+    const start = new Date(filterStartDate);
+    const end = new Date(filterEndDate);
+    const dateArray: string[] = [];
+    let d = new Date(start);
+    while (d <= end) {
+      dateArray.push(d.toLocaleDateString('sv-SE')); // YYYY-MM-DD 形式
+      d.setDate(d.getDate() + 1);
+    }
+
+    // 2. 出力対象のスタッフを特定
+    const targetStaffs = filterStaffId === "all" ? activeStaffList : adminStaffList.filter(s => s.id === filterStaffId);
+
     let csv = "名前,日付,出勤,退勤,休憩,実働\n";
-    adminReport.forEach(r => { csv += `${r.staff_name},${r.work_date},${formatToJSTTime(r.clock_in_at)},${formatToJSTTime(r.clock_out_at)},${r.break_time},${r.work_time}\n`; });
-    const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\uFEFF" + csv])); link.download = `Report.csv`; link.click();
+
+    // 3. スタッフごと、日付ごとにループして埋める
+    targetStaffs.forEach((s: any) => {
+      dateArray.forEach(dateStr => {
+        const record = adminReport.find(r => r.staff_id === s.id && r.work_date === dateStr);
+        if (record) {
+          csv += `"${s.name}","${dateStr}","${formatToJSTTime(record.clock_in_at)}","${formatToJSTTime(record.clock_out_at)}","${record.break_time}","${record.work_time}"\n`;
+        } else {
+          // データがない日は空欄で出力（日付セルは出す）
+          csv += `"${s.name}","${dateStr}","","","",""\n`;
+        }
+      });
+    });
+
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    const blob = new Blob([bom, csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `AttendanceReport_${filterStartDate}_to_${filterEndDate}.csv`;
+    link.click();
   };
 
   const handleEditClick = (record: any) => {
@@ -257,7 +290,8 @@ export default function DashboardPage() {
         img.onload = () => {
           const cvs = document.createElement('canvas'); const MAX = 1280;
           let w = img.width, h = img.height; if (w > MAX) { h *= MAX / w; w = MAX; }
-          cvs.width = w; cvs.height = h; cvs.getContext('2d')?.drawImage(img, 0, 0, w, h);
+          cvs.width = w; cvs.height = h;
+          cvs.getContext('2d')?.drawImage(img, 0, 0, w, h);
           cvs.toBlob(async (blob) => {
             if (blob) {
               const fn = `${activeTask.id}-${Date.now()}.jpg`;
@@ -388,7 +422,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <button onClick={generateAdminReport} className="admin-grid-btn bg-[#1a202c] text-white"><Search size={16}/>抽出</button>
-                  <button onClick={downloadAttendanceCSV} className="admin-grid-btn bg-[#75C9D7] text-white"><Download size={16}/>CSV</button>
+                  <button onClick={downloadAttendanceCSV} className="admin-grid-btn bg-[#75C9D7] text-white"><Download size={16}/>CSV出力</button>
                   <button onClick={() => {setEditingCard(null); setEditForm({staff_id: activeStaffList[0]?.id || "", work_date: todayISO, clock_in_time: "09:00", clock_out_time: "18:00", break_mins: "0"}); setIsEditModalOpen(true);}} className="admin-grid-btn bg-orange-400 text-white"><Plus size={16}/>追加</button>
                 </div>
               </div>
@@ -398,7 +432,7 @@ export default function DashboardPage() {
         </div>
       </main>
 
-      {/* --- モーダル群 (スタッフ/退職/勤怠/削除) --- */}
+      {/* --- モーダル：スタッフ登録/修正 --- */}
       {isStaffModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl text-black">
@@ -415,6 +449,7 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* モーダル：退職処理 */}
       {isResignModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl text-black">
@@ -426,6 +461,7 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* モーダル：勤怠修正 */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 text-black">
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
@@ -441,16 +477,18 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* モーダル：削除確認 */}
       {isDeleteModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-[400] flex items-center justify-center p-4 text-black">
           <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl">
-            <div className="text-center"><AlertTriangle size={48} className="text-red-500 mb-4 mx-auto" /><h3 className="text-xl font-black mb-6 text-red-600">削除確認</h3></div>
+            <div className="text-center"><AlertTriangle size={48} className="text-red-500 mb-4 mx-auto" /><h3 className="text-xl font-black mb-6 text-red-600">記録の削除確認</h3></div>
             <textarea className="w-full mb-6" rows={3} placeholder="理由を入力..." value={deleteReason} onChange={(e)=>setDeleteReason(e.target.value)} />
-            <div className="flex gap-3"><button onClick={()=>setIsDeleteModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl border-none">中止</button><button onClick={handleConfirmDelete} className="flex-1 py-4 bg-red-500 text-white rounded-2xl border-none">実行</button></div>
+            <div className="flex gap-3"><button onClick={()=>setIsDeleteModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl border-none">中止</button><button onClick={handleConfirmDelete} className="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl border-none">実行</button></div>
           </div>
         </div>
       )}
 
+      {/* タスク実行オーバーレイ */}
       {activeTask && (
         <div className="fixed inset-0 bg-white z-[300] flex flex-col p-6 pt-10 overflow-y-auto text-center text-black">
           <div className="flex justify-between items-center mb-8 px-2"><button onClick={() => setActiveTask(null)} className="p-3 bg-slate-50 rounded-xl border-none"><PauseCircle size={20}/></button><h2 className="text-lg font-black italic">MISSION</h2><div className="w-10"></div></div>
